@@ -1,0 +1,89 @@
+CREATE TABLE public.profiles (
+  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  nome text NOT NULL DEFAULT '',
+  data_nascimento date,
+  genero text,
+  orientacao text,
+  desejo text,
+  bio text DEFAULT '',
+  cidade text DEFAULT '',
+  estado text DEFAULT '',
+  interesses text DEFAULT '',
+  fotos text[] NOT NULL DEFAULT '{}',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT, INSERT, UPDATE ON public.profiles TO authenticated;
+GRANT ALL ON public.profiles TO service_role;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "perfis visiveis para logados" ON public.profiles FOR SELECT TO authenticated USING (true);
+CREATE POLICY "editar proprio perfil" ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+CREATE POLICY "criar proprio perfil" ON public.profiles FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
+
+CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  INSERT INTO public.profiles (id, nome, data_nascimento, genero, orientacao, desejo, cidade, estado)
+  VALUES (NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'nome', split_part(NEW.email,'@',1)),
+    NULLIF(NEW.raw_user_meta_data->>'data_nascimento','')::date,
+    NEW.raw_user_meta_data->>'genero',
+    NEW.raw_user_meta_data->>'orientacao',
+    NEW.raw_user_meta_data->>'desejo',
+    COALESCE(NEW.raw_user_meta_data->>'cidade',''),
+    COALESCE(NEW.raw_user_meta_data->>'estado',''));
+  RETURN NEW;
+END $$;
+CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+CREATE TABLE public.likes (
+  liker_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  liked_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (liker_id, liked_id),
+  CHECK (liker_id <> liked_id)
+);
+GRANT SELECT, INSERT, DELETE ON public.likes TO authenticated;
+GRANT ALL ON public.likes TO service_role;
+ALTER TABLE public.likes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "ver curtidas minhas" ON public.likes FOR SELECT TO authenticated USING (auth.uid() = liker_id OR auth.uid() = liked_id);
+CREATE POLICY "curtir" ON public.likes FOR INSERT TO authenticated WITH CHECK (auth.uid() = liker_id);
+CREATE POLICY "descurtir" ON public.likes FOR DELETE TO authenticated USING (auth.uid() = liker_id);
+
+CREATE OR REPLACE FUNCTION public.is_match(a uuid, b uuid) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM likes WHERE liker_id = a AND liked_id = b)
+     AND EXISTS (SELECT 1 FROM likes WHERE liker_id = b AND liked_id = a);
+$$;
+
+CREATE TABLE public.messages (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  sender_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  receiver_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  content text NOT NULL CHECK (char_length(content) BETWEEN 1 AND 2000),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX messages_pair_idx ON public.messages (sender_id, receiver_id, created_at);
+GRANT SELECT, INSERT ON public.messages TO authenticated;
+GRANT ALL ON public.messages TO service_role;
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "ver minhas mensagens" ON public.messages FOR SELECT TO authenticated USING (auth.uid() = sender_id OR auth.uid() = receiver_id);
+CREATE POLICY "enviar so com match" ON public.messages FOR INSERT TO authenticated WITH CHECK (auth.uid() = sender_id AND public.is_match(sender_id, receiver_id));
+ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+
+CREATE OR REPLACE FUNCTION public.descobrir(idade_min int, idade_max int, genero_f text, estado_f text, cidade_f text)
+RETURNS SETOF public.profiles LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public AS $$
+  SELECT p.* FROM profiles p
+  WHERE p.id <> auth.uid()
+    AND NOT EXISTS (SELECT 1 FROM likes l WHERE l.liker_id = auth.uid() AND l.liked_id = p.id)
+    AND (p.data_nascimento IS NULL OR date_part('year', age(p.data_nascimento)) BETWEEN idade_min AND idade_max)
+    AND (genero_f IS NULL OR genero_f = '' OR p.genero = genero_f)
+    AND (estado_f IS NULL OR estado_f = '' OR p.estado = estado_f)
+    AND (cidade_f IS NULL OR cidade_f = '' OR lower(p.cidade) LIKE '%' || lower(cidade_f) || '%')
+  ORDER BY random() LIMIT 30;
+$$;
+GRANT EXECUTE ON FUNCTION public.descobrir(int,int,text,text,text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_match(uuid,uuid) TO authenticated;
+
+CREATE POLICY "fotos publicas" ON storage.objects FOR SELECT USING (bucket_id = 'fotos');
+CREATE POLICY "enviar minhas fotos" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'fotos' AND (storage.foldername(name))[1] = auth.uid()::text);
+CREATE POLICY "apagar minhas fotos" ON storage.objects FOR DELETE TO authenticated USING (bucket_id = 'fotos' AND (storage.foldername(name))[1] = auth.uid()::text);

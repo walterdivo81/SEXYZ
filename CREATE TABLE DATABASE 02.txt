@@ -1,0 +1,2 @@
+DROP POLICY IF EXISTS "fotos publicas" ON storage.objects;
+CREATE POLICY "fotos para logados" ON storage.objects FOR SELECT TO authenticated USING (bucket_id = 'fotos');

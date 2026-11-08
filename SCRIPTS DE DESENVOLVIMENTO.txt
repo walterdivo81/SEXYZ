@@ -1,0 +1,2943 @@
+Created
+.env
+
+SUPABASE_PROJECT_ID="ytkslzhluhmingdhqitp"
+SUPABASE_PUBLISHABLE_KEY="sb_publishable_7RMjipJ72faKdH-CJiDN8g_xM2VI6VC"
+SUPABASE_URL="https://ytkslzhluhmingdhqitp.supabase.co"
+VITE_SUPABASE_PROJECT_ID="ytkslzhluhmingdhqitp"
+VITE_SUPABASE_PUBLISHABLE_KEY="sb_publishable_7RMjipJ72faKdH-CJiDN8g_xM2VI6VC"
+VITE_SUPABASE_URL="https://ytkslzhluhmingdhqitp.supabase.co"
+
+Created
+drizzle.config.ts
+
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  dialect: "postgresql",
+  schema: "./drizzle/schema.ts",
+  out: "./drizzle/migrations",
+  dbCredentials: {
+    url: process.env.LOVABLE_DB_MIGRATION_URL ?? "",
+  },
+});
+
+Created
+0000_migration.sql
+
+CREATE TABLE public.profiles (
+  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  nome text NOT NULL DEFAULT '',
+  data_nascimento date,
+  genero text,
+  orientacao text,
+  desejo text,
+  bio text DEFAULT '',
+  cidade text DEFAULT '',
+  estado text DEFAULT '',
+  interesses text DEFAULT '',
+  fotos text[] NOT NULL DEFAULT '{}',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+GRANT SELECT, INSERT, UPDATE ON public.profiles TO authenticated;
+GRANT ALL ON public.profiles TO service_role;
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "perfis visiveis para logados" ON public.profiles FOR SELECT TO authenticated USING (true);
+CREATE POLICY "editar proprio perfil" ON public.profiles FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+CREATE POLICY "criar proprio perfil" ON public.profiles FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
+
+CREATE OR REPLACE FUNCTION public.handle_new_user() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  INSERT INTO public.profiles (id, nome, data_nascimento, genero, orientacao, desejo, cidade, estado)
+  VALUES (NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'nome', split_part(NEW.email,'@',1)),
+    NULLIF(NEW.raw_user_meta_data->>'data_nascimento','')::date,
+    NEW.raw_user_meta_data->>'genero',
+    NEW.raw_user_meta_data->>'orientacao',
+    NEW.raw_user_meta_data->>'desejo',
+    COALESCE(NEW.raw_user_meta_data->>'cidade',''),
+    COALESCE(NEW.raw_user_meta_data->>'estado',''));
+  RETURN NEW;
+END $$;
+CREATE TRIGGER on_auth_user_created AFTER INSERT ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+CREATE TABLE public.likes (
+  liker_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  liked_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (liker_id, liked_id),
+  CHECK (liker_id <> liked_id)
+);
+GRANT SELECT, INSERT, DELETE ON public.likes TO authenticated;
+GRANT ALL ON public.likes TO service_role;
+ALTER TABLE public.likes ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "ver curtidas minhas" ON public.likes FOR SELECT TO authenticated USING (auth.uid() = liker_id OR auth.uid() = liked_id);
+CREATE POLICY "curtir" ON public.likes FOR INSERT TO authenticated WITH CHECK (auth.uid() = liker_id);
+CREATE POLICY "descurtir" ON public.likes FOR DELETE TO authenticated USING (auth.uid() = liker_id);
+
+CREATE OR REPLACE FUNCTION public.is_match(a uuid, b uuid) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (SELECT 1 FROM likes WHERE liker_id = a AND liked_id = b)
+     AND EXISTS (SELECT 1 FROM likes WHERE liker_id = b AND liked_id = a);
+$$;
+
+CREATE TABLE public.messages (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  sender_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  receiver_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  content text NOT NULL CHECK (char_length(content) BETWEEN 1 AND 2000),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX messages_pair_idx ON public.messages (sender_id, receiver_id, created_at);
+GRANT SELECT, INSERT ON public.messages TO authenticated;
+GRANT ALL ON public.messages TO service_role;
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "ver minhas mensagens" ON public.messages FOR SELECT TO authenticated USING (auth.uid() = sender_id OR auth.uid() = receiver_id);
+CREATE POLICY "enviar so com match" ON public.messages FOR INSERT TO authenticated WITH CHECK (auth.uid() = sender_id AND public.is_match(sender_id, receiver_id));
+ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+
+CREATE OR REPLACE FUNCTION public.descobrir(idade_min int, idade_max int, genero_f text, estado_f text, cidade_f text)
+RETURNS SETOF public.profiles LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public AS $$
+  SELECT p.* FROM profiles p
+  WHERE p.id <> auth.uid()
+    AND NOT EXISTS (SELECT 1 FROM likes l WHERE l.liker_id = auth.uid() AND l.liked_id = p.id)
+    AND (p.data_nascimento IS NULL OR date_part('year', age(p.data_nascimento)) BETWEEN idade_min AND idade_max)
+    AND (genero_f IS NULL OR genero_f = '' OR p.genero = genero_f)
+    AND (estado_f IS NULL OR estado_f = '' OR p.estado = estado_f)
+    AND (cidade_f IS NULL OR cidade_f = '' OR lower(p.cidade) LIKE '%' || lower(cidade_f) || '%')
+  ORDER BY random() LIMIT 30;
+$$;
+GRANT EXECUTE ON FUNCTION public.descobrir(int,int,text,text,text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_match(uuid,uuid) TO authenticated;
+
+CREATE POLICY "fotos publicas" ON storage.objects FOR SELECT USING (bucket_id = 'fotos');
+CREATE POLICY "enviar minhas fotos" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'fotos' AND (storage.foldername(name))[1] = auth.uid()::text);
+CREATE POLICY "apagar minhas fotos" ON storage.objects FOR DELETE TO authenticated USING (bucket_id = 'fotos' AND (storage.foldername(name))[1] = auth.uid()::text);
+
+Created
+0001_migration.sql
+
+DROP POLICY IF EXISTS "fotos publicas" ON storage.objects;
+CREATE POLICY "fotos para logados" ON storage.objects FOR SELECT TO authenticated USING (bucket_id = 'fotos');
+
+Created
+0000_snapshot.json
+
+{
+  "id": "6f8e21c6-b706-433c-bec1-309e10c47c78",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {},
+  "enums": {},
+  "schemas": {},
+  "views": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
+
+Created
+0001_snapshot.json
+
+{
+  "id": "c0db2b71-2ba9-4757-8914-99b587b85de8",
+  "prevId": "6f8e21c6-b706-433c-bec1-309e10c47c78",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {},
+  "enums": {},
+  "schemas": {},
+  "views": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
+
+Created
+_journal.json
+
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1794089850148,
+      "tag": "0000_migration",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794089866712,
+      "tag": "0001_migration",
+      "breakpoints": true
+    }
+  ]
+}
+
+Created
+schema.ts
+
+// auto-generated and intentionally left blank, do not edit
+
+Created
+hero-SEXYZ.jpg
+
+
+Created
+AppShell.tsx
+
+import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
+
+const links = [
+  { to: "/descobrir", label: "Descobrir" },
+  { to: "/matches", label: "Curtidas & Matches" },
+  { to: "/mensagens", label: "Mensagens" },
+  { to: "/perfil", label: "Meu perfil" },
+  { to: "/configuracoes", label: "Configurações" },
+] as const;
+
+export function Brand() {
+  return (
+    <Link to="/" className="font-display text-2xl font-extrabold tracking-tight">
+      NE<span className="text-brand">X</span>O
+    </Link>
+  );
+}
+
+export function AppShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <Brand />
+          <nav className="flex flex-wrap gap-1 text-sm">
+            {links.map((l) => (
+              <Link
+                key={l.to}
+                to={l.to}
+                className="rounded-full px-3 py-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                activeProps={{ className: "rounded-full px-3 py-1.5 bg-secondary text-foreground" }}
+              >
+                {l.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+      </header>
+      <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
+      <footer className="py-8 text-center text-xs text-muted-foreground">
+        SEXYZ • Serviço destinado exclusivamente a maiores de 18 anos.
+      </footer>
+    </div>
+  );
+}
+
+export function Avatar({ url, nome, size = 48 }: { url?: string; nome: string; size?: number }) {
+  return url ? (
+    <img src={url} alt={nome} style={{ width: size, height: size }} className="shrink-0 rounded-full object-cover" />
+  ) : (
+    <div style={{ width: size, height: size }} className="grid shrink-0 place-items-center rounded-full bg-brand font-display font-bold text-primary-foreground">
+      {nome.charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
+Created
+AuthCard.tsx
+
+import type { ReactNode } from "react";
+import { Brand } from "@/components/AppShell";
+
+export function AuthCard({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+  return (
+    <div className="grid min-h-screen place-items-center px-4 py-10">
+      <div className="w-full max-w-md">
+        <div className="mb-6 text-center"><Brand /></div>
+        <div className="rounded-3xl border bg-card p-7 shadow-xl">
+          <h1 className="text-2xl font-bold">{title}</h1>
+          {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+          <div className="mt-6">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export const selectClass =
+  "h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
+
+Created
+PerfilCard.tsx
+
+import type { ReactNode } from "react";
+import type { Perfil } from "@/lib/dados";
+import { calcularIdade } from "@/lib/regras";
+
+export function PerfilCard({ p, foto, children }: { p: Perfil; foto?: string; children?: ReactNode }) {
+  const idade = calcularIdade(p.data_nascimento);
+  return (
+    <article className="overflow-hidden rounded-3xl border bg-card shadow-lg">
+      <div className="relative aspect-[4/5] bg-secondary">
+        {foto ? (
+          <img src={foto} alt={p.nome} loading="lazy" className="h-full w-full object-cover" />
+        ) : (
+          <div className="grid h-full place-items-center font-display text-7xl font-extrabold text-muted-foreground">
+            {p.nome.charAt(0).toUpperCase()}
+          </div>
+        )}
+        <div className="absolute inset-0 bg-fade" />
+        <div className="absolute bottom-0 p-4">
+          <h3 className="text-2xl font-bold">{p.nome}{idade !== null && <span className="font-normal">, {idade}</span>}</h3>
+          <p className="text-sm text-muted-foreground">{[p.cidade, p.estado].filter(Boolean).join(" - ") || "Região não informada"}</p>
+        </div>
+      </div>
+      <div className="space-y-3 p-4">
+        {p.bio && <p className="line-clamp-3 text-sm text-muted-foreground">{p.bio}</p>}
+        {p.interesses && (
+          <div className="flex flex-wrap gap-1.5">
+            {p.interesses.split(",").map((i) => i.trim()).filter(Boolean).slice(0, 5).map((i) => (
+              <span key={i} className="rounded-full bg-secondary px-2.5 py-0.5 text-xs">{i}</span>
+            ))}
+          </div>
+        )}
+        {children}
+      </div>
+    </article>
+  );
+}
+
+Created
+auth-attacher.ts
+
+// This file is automatically generated. Do not edit it directly.
+import { createMiddleware } from '@tanstack/react-start'
+import { supabase } from './client'
+
+// Must be registered as a global `functionMiddleware` in `src/start.ts`; otherwise
+// the browser never attaches the bearer token to serverFn RPCs.
+export const attachSupabaseAuth = createMiddleware({ type: 'function' }).client(
+  async ({ next }) => {
+    const { data } = await supabase.auth.getSession()
+    const token = data.session?.access_token
+    return next({
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+  },
+)
+
+Created
+auth-middleware.ts
+
+// This file is automatically generated. Do not edit it directly.
+import { createMiddleware } from '@tanstack/react-start'
+import { getRequest } from '@tanstack/react-start/server'
+import { createClient } from '@supabase/supabase-js'
+import type { Database } from './types'
+
+
+
+
+function isNewSupabaseApiKey(value: string): boolean {
+  return value.startsWith('sb_publishable_') || value.startsWith('sb_secret_');
+}
+
+function createSupabaseFetch(supabaseKey: string): typeof fetch {
+  return (input, init) => {
+    const headers = new Headers(
+      typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined,
+    );
+
+    if (init?.headers) {
+      new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+    }
+
+    // New Supabase API keys are opaque strings, not bearer JWTs.
+    if (isNewSupabaseApiKey(supabaseKey) && headers.get('Authorization') === `Bearer ${supabaseKey}`) {
+      headers.delete('Authorization');
+    }
+
+    headers.set('apikey', supabaseKey);
+    return fetch(input, { ...init, headers });
+  };
+}
+
+export const requireSupabaseAuth = createMiddleware({ type: 'function' }).server(
+  async ({ next }) => {
+    
+    const SUPABASE_URL = process.env['SUPABASE_URL'];
+    const SUPABASE_PUBLISHABLE_KEY = process.env['SUPABASE_PUBLISHABLE_KEY'];
+
+    if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+      const missing = [
+        ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
+        ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
+      ];
+      const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
+      console.error(`[Supabase] ${message}`);
+      throw new Error(message);
+    }
+    
+    const request = getRequest();
+
+    if (!request?.headers) {
+      throw new Error('Unauthorized: No request headers available');
+    }
+
+
+    const authHeader = request.headers.get('authorization');
+
+    if (!authHeader) {
+      throw new Error('Unauthorized: No authorization header provided');
+    }
+
+    if (!authHeader.startsWith('Bearer ')) {
+      throw new Error('Unauthorized: Only Bearer tokens are supported');
+    }
+
+    const token = authHeader.replace('Bearer ', '');
+    if (!token) {
+      throw new Error('Unauthorized: No token provided');
+    }
+
+    if (token.split('.').length !== 3) {
+      throw new Error('Unauthorized: Invalid token');
+    }
+
+    const supabase = createClient<Database>(
+      SUPABASE_URL!,
+      SUPABASE_PUBLISHABLE_KEY!,
+      {
+        global: {
+          fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY!),
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+        auth: {
+          storage: undefined,
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      }
+    );
+
+    const { data, error } = await supabase.auth.getClaims(token);
+    if (error || !data?.claims) {
+      throw new Error('Unauthorized: Invalid token');
+    }
+
+    if (!data.claims.sub) {
+      throw new Error('Unauthorized: No user ID found in token');
+    }
+
+    return next({
+      context: {
+        supabase,
+        userId: data.claims.sub,
+        claims: data.claims,
+      },
+    });
+  },
+);
+
+Created
+client.server.ts
+
+// This file is automatically generated. Do not edit it directly.
+// Server-side Supabase client with service role key - bypasses RLS.
+// Use this for admin operations in server functions and server routes only.
+// For user-authenticated queries (with RLS), use the auth middleware instead.
+import { createClient } from '@supabase/supabase-js';
+import type { Database } from './types';
+
+function isNewSupabaseApiKey(value: string): boolean {
+  return value.startsWith('sb_publishable_') || value.startsWith('sb_secret_');
+}
+
+function createSupabaseFetch(supabaseKey: string): typeof fetch {
+  return (input, init) => {
+    const headers = new Headers(
+      typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined,
+    );
+
+    if (init?.headers) {
+      new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+    }
+
+    // New Supabase API keys are opaque strings, not bearer JWTs.
+    if (isNewSupabaseApiKey(supabaseKey) && headers.get('Authorization') === `Bearer ${supabaseKey}`) {
+      headers.delete('Authorization');
+    }
+
+    headers.set('apikey', supabaseKey);
+    return fetch(input, { ...init, headers });
+  };
+}
+
+function createSupabaseAdminClient() {
+  const SUPABASE_URL = process.env['SUPABASE_URL'];
+  const SUPABASE_SERVICE_ROLE_KEY = process.env['SUPABASE_SERVICE_ROLE_KEY'];
+
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    const missing = [
+      ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
+      ...(!SUPABASE_SERVICE_ROLE_KEY ? ['SUPABASE_SERVICE_ROLE_KEY'] : []),
+    ];
+    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
+    console.error(`[Supabase] ${message}`);
+    throw new Error(message);
+  }
+
+  return createClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    global: {
+      fetch: createSupabaseFetch(SUPABASE_SERVICE_ROLE_KEY),
+    },
+    auth: {
+      storage: undefined,
+      persistSession: false,
+      autoRefreshToken: false,
+    }
+  });
+}
+
+let _supabaseAdmin: ReturnType<typeof createSupabaseAdminClient> | undefined;
+
+// Server-side Supabase client with service role - bypasses RLS
+// SECURITY: Only use this for trusted server-side operations, never expose to client code
+// Load inside server handlers: const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+// Top-level import is safe only in other .server.ts modules - route files and *.functions.ts ship to the client bundle.
+export const supabaseAdmin = new Proxy({} as ReturnType<typeof createSupabaseAdminClient>, {
+  get(_, prop, receiver) {
+    if (!_supabaseAdmin) _supabaseAdmin = createSupabaseAdminClient();
+    return Reflect.get(_supabaseAdmin, prop, receiver);
+  },
+});
+
+Created
+client.ts
+
+// This file is automatically generated. Do not edit it directly.
+import { createClient } from '@supabase/supabase-js';
+import type { Database } from './types';
+import { brokeredPreviewStorage } from './previewAuthStorage';
+
+function isNewSupabaseApiKey(value: string): boolean {
+  return value.startsWith('sb_publishable_') || value.startsWith('sb_secret_');
+}
+
+// The public URL can be reachable only from the browser, so server requests go to the runtime URL of the same backend.
+function serverSupabaseUrl(publicUrl: string, supabaseKey: string): string | undefined {
+  if (typeof window !== 'undefined' || typeof process === 'undefined') return undefined;
+  const serverUrl = process.env['SUPABASE_URL']?.replace(/\/+$/, '');
+  if (!serverUrl || serverUrl === publicUrl || process.env['SUPABASE_PUBLISHABLE_KEY'] !== supabaseKey) return undefined;
+  return serverUrl;
+}
+
+function createSupabaseFetch(supabaseUrl: string, supabaseKey: string): typeof fetch {
+  const publicUrl = supabaseUrl.replace(/\/+$/, '');
+  const serverUrl = serverSupabaseUrl(publicUrl, supabaseKey);
+  return (input, init) => {
+    const headers = new Headers(
+      typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined,
+    );
+
+    if (init?.headers) {
+      new Headers(init.headers).forEach((value, key) => headers.set(key, value));
+    }
+
+    // New Supabase API keys are opaque strings, not bearer JWTs.
+    if (isNewSupabaseApiKey(supabaseKey) && headers.get('Authorization') === `Bearer ${supabaseKey}`) {
+      headers.delete('Authorization');
+    }
+
+    headers.set('apikey', supabaseKey);
+    if (serverUrl) {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.startsWith(`${publicUrl}/`)) {
+        const target = serverUrl + url.slice(publicUrl.length);
+        const request = typeof input === 'string' || input instanceof URL ? target : new Request(target, input);
+        return fetch(request, { ...init, headers });
+      }
+    }
+    return fetch(input, { ...init, headers });
+  };
+}
+
+
+function createSupabaseClient() {
+  // Use import.meta.env for client-side (Vite build-time replacement)
+  // Fall back to process.env for SSR (server-side rendering)
+  const SUPABASE_URL = import.meta.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'];
+  const SUPABASE_PUBLISHABLE_KEY = import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || process.env['SUPABASE_PUBLISHABLE_KEY'];
+
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+    const missing = [
+      ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
+      ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
+    ];
+    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
+    console.error(`[Supabase] ${message}`);
+    throw new Error(message);
+  }
+
+  return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    global: {
+      fetch: createSupabaseFetch(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY),
+    },
+    auth: {
+      storage: brokeredPreviewStorage(),
+      persistSession: true,
+      autoRefreshToken: true,
+    },
+  });
+}
+
+let _supabase: ReturnType<typeof createSupabaseClient> | undefined;
+
+// Import the supabase client like this:
+// import { supabase } from "@/integrations/supabase/client";
+export const supabase = new Proxy({} as ReturnType<typeof createSupabaseClient>, {
+  get(_, prop, receiver) {
+    if (!_supabase) _supabase = createSupabaseClient();
+    return Reflect.get(_supabase, prop, receiver);
+  },
+});
+
+
+Created
+cron-auth.ts
+
+// This file is automatically generated. Do not edit it directly.
+export async function authenticateCronRequest(
+  request: Request,
+): Promise<Response | null> {
+  const currentSecret = process.env['LOVABLE_CRON_SECRET']
+  const previousSecret = process.env['LOVABLE_CRON_SECRET_PREVIOUS']
+
+  if (!currentSecret) {
+    return new Response('Server configuration error', { status: 500 })
+  }
+
+  const match = /^Bearer ([^\s,]+)$/.exec(
+    request.headers.get('authorization') ?? '',
+  )
+  const token = match?.[1]
+  if (!token) {
+    return new Response('Unauthorized', { status: 401 })
+  }
+
+  const { createHash, timingSafeEqual } = await import('node:crypto')
+  const digest = (value: string) =>
+    createHash('sha256').update(value, 'utf8').digest()
+  const providedDigest = digest(token)
+  const currentMatches = timingSafeEqual(providedDigest, digest(currentSecret))
+  const previousMatches = timingSafeEqual(
+    providedDigest,
+    digest(previousSecret ?? currentSecret),
+  )
+
+  if (!currentMatches && !previousMatches) {
+    return new Response('Unauthorized', { status: 401 })
+  }
+
+  return null
+}
+
+Created
+previewAuthStorage.ts
+
+// This file is automatically generated. Do not edit it directly.
+
+/** Storage accepted by Supabase's `auth.storage` option; `localStorage` and the editor broker both satisfy it. */
+export interface PreviewAuthStorage {
+  getItem: (key: string) => string | null | Promise<string | null>;
+  setItem: (key: string, value: string) => void | Promise<void>;
+  removeItem: (key: string) => void | Promise<void>;
+}
+
+type BrokerRequestType = 'lovable-preview-auth:get' | 'lovable-preview-auth:set' | 'lovable-preview-auth:remove';
+
+interface BrokerRequest {
+  type: BrokerRequestType;
+  requestId: string;
+  projectId: string;
+  key: string;
+  value?: string;
+}
+
+interface BrokerReply {
+  ok: boolean;
+  value: string | null;
+}
+
+const RESULT = 'lovable-preview-auth:result';
+
+function readBrokerReply(data: unknown, requestId: string): BrokerReply | null {
+  if (typeof data !== 'object' || data === null) return null;
+  if (!('type' in data) || data.type !== RESULT) return null;
+  if (!('requestId' in data) || data.requestId !== requestId) return null;
+  return {
+    ok: 'ok' in data && Boolean(data.ok),
+    value: 'value' in data && typeof data.value === 'string' ? data.value : null,
+  };
+}
+
+/**
+ * On a Lovable preview surface, broker the auth session to the editor over
+ * postMessage so the project's preview surfaces share one login; else localStorage.
+ */
+export function brokeredPreviewStorage(): PreviewAuthStorage | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const host = location.hostname;
+  const PREVIEW_ZONES = ['lovableproject.com', 'lovableproject-dev.com', 'lovable.app', 'gpt-eng.com', 'gptengineer.run'];
+  const onPreviewZone = PREVIEW_ZONES.some((z) => host === z || host.endsWith('.' + z));
+  // Read the id only from non-user-controlled host positions, so a user-named
+  // preview--<name> host can't smuggle another project's id.
+  const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+  const projectId = onPreviewZone
+    ? (new RegExp('^(?:id-preview(?:-[a-z0-9]+)?|project)--(' + UUID + ')(?:-dev)?(?=\\.|$)', 'i').exec(host)?.[1]
+        ?? new RegExp('^(' + UUID + ')(?=[.-])', 'i').exec(host)?.[1])
+    : undefined;
+  // lib.dom types window.parent and location.ancestorOrigins as always set, but a
+  // detached frame has no parent and not every browser implements ancestorOrigins.
+  const parentWindow = window.parent as Window | null;
+  const framed = parentWindow !== null && parentWindow !== window;
+  if (!projectId || !framed) return localStorage;
+
+  // Post only to the real editor ancestor, validated as a Lovable origin, so the
+  // session token can never reach an untrusted embedder.
+  const dev = host.endsWith('.lovableproject-dev.com') || host.endsWith('.gpt-eng.com');
+  const EDITOR = dev
+    ? /^https:\/\/([a-z0-9-]+\.)*(lovable\.dev|gptengineer\.app)$|^http:\/\/localhost:3000$/
+    : /^https:\/\/([a-z0-9-]+\.)*(lovable\.dev|gptengineer\.app)$/;
+  const ancestorOrigins = location.ancestorOrigins as DOMStringList | undefined;
+  const ancestor = ancestorOrigins?.[0] ?? (document.referrer ? new URL(document.referrer).origin : '');
+  const editorOrigins = ancestor && EDITOR.test(ancestor)
+    ? [ancestor]
+    : (dev ? ['https://lovable.dev', 'http://localhost:3000'] : ['https://lovable.dev']);
+  const TIMEOUT = 2000;
+  const newId = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+  const request = (type: BrokerRequestType, key: string, value?: string): Promise<BrokerReply | null> =>
+    new Promise((resolve) => {
+      const requestId = newId();
+      let done = false;
+      const finish = (reply: BrokerReply | null) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        window.removeEventListener('message', onMessage);
+        resolve(reply);
+      };
+      const onMessage = (e: MessageEvent<unknown>) => {
+        if (!editorOrigins.includes(e.origin)) return;
+        const reply = readBrokerReply(e.data, requestId);
+        if (reply) finish(reply);
+      };
+      window.addEventListener('message', onMessage);
+      const timer = setTimeout(() => { finish(null); }, TIMEOUT);
+      const msg: BrokerRequest = { type, requestId, projectId, key };
+      if (value !== undefined) msg.value = value;
+      // targetOrigin per trusted editor origin, so a session token never reaches an arbitrary embedder.
+      for (const origin of editorOrigins) window.parent.postMessage(msg, origin);
+    });
+
+  // The editor may not be listening yet at the first getItem, so retry once.
+  let firstGet = true;
+  const RETRY_DELAY = 250;
+  // Blocked third-party storage throws here; seeding must not break broker reads.
+  const readLocal = (key: string): string | null | undefined => { try { return localStorage.getItem(key); } catch { return undefined; } };
+
+  return {
+    getItem: async (key) => {
+      // Sent with GET and REMOVE so an editor that never cached this session can check or revoke it.
+      const local = readLocal(key);
+      let res = await request('lovable-preview-auth:get', key, local ?? undefined);
+      if (!res && firstGet) {
+        await new Promise<void>((resolve) => setTimeout(resolve, RETRY_DELAY));
+        res = await request('lovable-preview-auth:get', key, local ?? undefined);
+      }
+      firstGet = false;
+      // '' is the logout tombstone: clear the local copy too so it can't resurrect if
+      // the broker later goes silent. A null value means never-synced -> keep local.
+      if (res?.ok && res.value !== null) {
+        if (res.value === '') {
+          if (local !== undefined && readLocal(key) === local) localStorage.removeItem(key);
+          return null;
+        }
+        // Seed this origin so a new tab, whose editor holds no session, stays signed in.
+        if (local === null && readLocal(key) === null) {
+          try { localStorage.setItem(key, res.value); } catch { /* storage full: still return the editor's session */ }
+        }
+        return res.value;
+      }
+      return localStorage.getItem(key);
+    },
+    setItem: (key, value) => {
+      localStorage.setItem(key, value);
+      return request('lovable-preview-auth:set', key, value).then((res) => {
+        if (res?.ok && res.value !== null && localStorage.getItem(key) === value) {
+          if (res.value === '') localStorage.removeItem(key);
+          else localStorage.setItem(key, res.value);
+        }
+      });
+    },
+    removeItem: (key) => {
+      const local = readLocal(key);
+      localStorage.removeItem(key);
+      return request('lovable-preview-auth:remove', key, local ?? undefined).then(() => {});
+    },
+  };
+}
+
+Created
+src/integrations/supabase/types.ts
+
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.18"
+  }
+  public: {
+    Tables: {
+      likes: {
+        Row: {
+          created_at: string
+          liked_id: string
+          liker_id: string
+        }
+        Insert: {
+          created_at?: string
+          liked_id: string
+          liker_id: string
+        }
+        Update: {
+          created_at?: string
+          liked_id?: string
+          liker_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "likes_liked_id_fkey"
+            columns: ["liked_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "likes_liker_id_fkey"
+            columns: ["liker_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      messages: {
+        Row: {
+          content: string
+          created_at: string
+          id: string
+          receiver_id: string
+          sender_id: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          id?: string
+          receiver_id: string
+          sender_id: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          receiver_id?: string
+          sender_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_receiver_id_fkey"
+            columns: ["receiver_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "messages_sender_id_fkey"
+            columns: ["sender_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          bio: string | null
+          cidade: string | null
+          created_at: string
+          data_nascimento: string | null
+          desejo: string | null
+          estado: string | null
+          fotos: string[]
+          genero: string | null
+          id: string
+          interesses: string | null
+          nome: string
+          orientacao: string | null
+        }
+        Insert: {
+          bio?: string | null
+          cidade?: string | null
+          created_at?: string
+          data_nascimento?: string | null
+          desejo?: string | null
+          estado?: string | null
+          fotos?: string[]
+          genero?: string | null
+          id: string
+          interesses?: string | null
+          nome?: string
+          orientacao?: string | null
+        }
+        Update: {
+          bio?: string | null
+          cidade?: string | null
+          created_at?: string
+          data_nascimento?: string | null
+          desejo?: string | null
+          estado?: string | null
+          fotos?: string[]
+          genero?: string | null
+          id?: string
+          interesses?: string | null
+          nome?: string
+          orientacao?: string | null
+        }
+        Relationships: []
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      descobrir: {
+        Args: {
+          cidade_f: string
+          estado_f: string
+          genero_f: string
+          idade_max: number
+          idade_min: number
+        }
+        Returns: {
+          bio: string | null
+          cidade: string | null
+          created_at: string
+          data_nascimento: string | null
+          desejo: string | null
+          estado: string | null
+          fotos: string[]
+          genero: string | null
+          id: string
+          interesses: string | null
+          nome: string
+          orientacao: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "profiles"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      is_match: { Args: { a: string; b: string }; Returns: boolean }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never) = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never) = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never) = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {},
+  },
+} as const
+
+Created
+auth.ts
+
+import { useEffect, useState } from "react";
+import type { User } from "@supabase/supabase-js";
+import { supabase } from "@/integrations/supabase/client";
+
+export function useUser() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => { setUser(data.user); setLoading(false); });
+    const { data } = supabase.auth.onAuthStateChange((_e, s) => setUser(s?.user ?? null));
+    return () => data.subscription.unsubscribe();
+  }, []);
+  return { user, loading };
+}
+
+Created
+dados.ts
+
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
+
+export type Perfil = Database["public"]["Tables"]["profiles"]["Row"];
+
+/** Curtidas recebidas e enviadas, com os perfis envolvidos, e a lista de matches (curtida mútua). */
+export function useCoSEXYZes(userId: string) {
+  return useQuery({
+    queryKey: ["coSEXYZes", userId],
+    queryFn: async () => {
+      const { data: likes, error } = await supabase
+        .from("likes")
+        .select("liker_id, liked_id, created_at")
+        .or(`liker_id.eq.${userId},liked_id.eq.${userId}`)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const enviei = new Set(likes.filter((l) => l.liker_id === userId).map((l) => l.liked_id));
+      const recebi = new Set(likes.filter((l) => l.liked_id === userId).map((l) => l.liker_id));
+      const ids = [...new Set([...enviei, ...recebi])];
+      let perfis: Perfil[] = [];
+      if (ids.length) {
+        const { data, error: e2 } = await supabase.from("profiles").select("*").in("id", ids);
+        if (e2) throw e2;
+        perfis = data;
+      }
+      const byId = new Map(perfis.map((p) => [p.id, p]));
+      const pick = (s: string[]) => s.map((id) => byId.get(id)).filter(Boolean) as Perfil[];
+      return {
+        curtiramVoce: pick([...recebi].filter((id) => !enviei.has(id))),
+        vocêCurtiu: pick([...enviei].filter((id) => !recebi.has(id))),
+        matches: pick([...enviei].filter((id) => recebi.has(id))),
+      };
+    },
+  });
+}
+
+Created
+fotos.ts
+
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+
+/** Converte caminhos guardados no perfil em links temporários (o armazenamento é privado). */
+export function useFotoUrls(paths: string[] | null | undefined) {
+  const list = (paths ?? []).filter(Boolean);
+  return useQuery({
+    queryKey: ["fotos", list],
+    enabled: list.length > 0,
+    staleTime: 50 * 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await supabase.storage.from("fotos").createSignedUrls(list, 3600);
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      data?.forEach((d) => { if (d.path && d.signedUrl) map[d.path] = d.signedUrl; });
+      return map;
+    },
+  });
+}
+
+Created
+regras.ts
+
+export function calcularIdade(nascimento: string | null | undefined, hoje = new Date()): number | null {
+  if (!nascimento) return null;
+  const d = new Date(nascimento + "T00:00:00");
+  if (isNaN(d.getTime())) return null;
+  let idade = hoje.getFullYear() - d.getFullYear();
+  const m = hoje.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && hoje.getDate() < d.getDate())) idade--;
+  return idade;
+}
+
+export function maiorDeIdade(nascimento: string, hoje = new Date()) {
+  const i = calcularIdade(nascimento, hoje);
+  return i !== null && i >= 18;
+}
+
+export const MAX_FOTOS = 6;
+
+export const GENEROS = ["Homem", "Mulher", "Não binário", "Prefiro não informar"];
+export const ORIENTACOES = ["Heterossexual", "Homossexual", "Bissexual", "Pansexual", "Assexual", "Outra", "Prefiro não informar"];
+export const DESEJOS = ["Homens e mulheres", "Homens", "Mulheres", "Outras identidades"];
+export const ESTADOS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+
+Created
+configuracoes.tsx
+
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export const Route = createFileRoute("/_authenticated/configuracoes")({
+  head: () => ({
+    meta: [
+      { title: "Configurações | SEXYZ" },
+      { name: "description", content: "Senha e conta." },
+      { property: "og:title", content: "Configurações | SEXYZ" },
+      { property: "og:description", content: "Senha e conta." },
+    ],
+  }),
+  component: Config,
+});
+
+function Config() {
+  const nav = useNavigate();
+  const [atual, setAtual] = useState("");
+  const [nova, setNova] = useState("");
+
+  async function trocar(e: React.FormEvent) {
+    e.preventDefault();
+    if (nova.length < 6) return toast.error("A nova senha precisa ter pelo menos 6 caracteres.");
+    const { error } = await supabase.auth.updateUser({ password: nova, current_password: atual } as never);
+    if (error) return toast.error("Não foi possível alterar. Confira a senha atual.");
+    toast.success("Senha alterada!");
+    setAtual(""); setNova("");
+  }
+
+  async function sair() {
+    await supabase.auth.signOut();
+    nav({ to: "/login" });
+  }
+
+  return (
+    <div className="max-w-lg space-y-6">
+      <h1 className="text-4xl font-extrabold">Configurações</h1>
+      <form onSubmit={trocar} className="space-y-4 rounded-3xl border bg-card p-6">
+        <h3 className="text-xl font-bold">Alterar senha</h3>
+        <div className="space-y-1.5"><Label>Senha atual</Label><Input type="password" value={atual} onChange={(e) => setAtual(e.target.value)} /></div>
+        <div className="space-y-1.5"><Label>Nova senha</Label><Input type="password" value={nova} onChange={(e) => setNova(e.target.value)} /></div>
+        <Button type="submit">Salvar nova senha</Button>
+      </form>
+      <div className="rounded-3xl border bg-card p-6">
+        <h3 className="mb-3 text-xl font-bold">Sessão</h3>
+        <Button variant="destructive" onClick={sair}>Sair da conta</Button>
+      </div>
+    </div>
+  );
+}
+
+Created
+descobrir.tsx
+
+import { createFileRoute } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { Heart, X, Shuffle, SlidersHorizontal } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { selectClass } from "@/components/AuthCard";
+import { PerfilCard } from "@/components/PerfilCard";
+import { useFotoUrls } from "@/lib/fotos";
+import { ESTADOS, GENEROS } from "@/lib/regras";
+
+export const Route = createFileRoute("/_authenticated/descobrir")({
+  head: () => ({
+    meta: [
+      { title: "Descobrir | SEXYZ" },
+      { name: "description", content: "Perfis aleatórios de acordo com seus filtros." },
+      { property: "og:title", content: "Descobrir | SEXYZ" },
+      { property: "og:description", content: "Perfis aleatórios de acordo com seus filtros." },
+    ],
+  }),
+  component: Descobrir,
+});
+
+type Filtros = { idadeMin: number; idadeMax: number; genero: string; estado: string; cidade: string };
+const PADRAO: Filtros = { idadeMin: 18, idadeMax: 60, genero: "", estado: "", cidade: "" };
+
+function Descobrir() {
+  const { userId } = Route.useRouteContext();
+  const qc = useQueryClient();
+  const [filtros, setFiltros] = useState<Filtros>(PADRAO);
+  const [rascunho, setRascunho] = useState<Filtros>(PADRAO);
+  const [aberto, setAberto] = useState(false);
+  const [ocultos, setOcultos] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const salvo = localStorage.getItem("SEXYZ_filtros");
+    if (salvo) { const f = { ...PADRAO, ...JSON.parse(salvo) }; setFiltros(f); setRascunho(f); }
+  }, []);
+
+  const { data: perfis = [], isLoading, refetch, isFetching } = useQuery({
+    queryKey: ["descobrir", filtros],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("descobrir", {
+        idade_min: filtros.idadeMin, idade_max: filtros.idadeMax,
+        genero_f: filtros.genero, estado_f: filtros.estado, cidade_f: filtros.cidade,
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+  const visiveis = perfis.filter((p) => !ocultos.has(p.id));
+  const { data: urls = {} } = useFotoUrls(visiveis.map((p) => p.fotos[0]).filter(Boolean));
+
+  function aplicar() {
+    setFiltros(rascunho);
+    localStorage.setItem("SEXYZ_filtros", JSON.stringify(rascunho));
+    setOcultos(new Set());
+    setAberto(false);
+  }
+
+  async function curtir(id: string, nome: string) {
+    const { error } = await supabase.from("likes").insert({ liker_id: userId, liked_id: id });
+    if (error && !error.message.includes("duplicate")) return toast.error("Não foi possível curtir.");
+    setOcultos((s) => new Set(s).add(id));
+    const { data: match } = await supabase.rpc("is_match", { a: userId, b: id });
+    if (match) toast.success(`É um match com ${nome}! Agora vocês podem conversar.`);
+    else toast(`Você curtiu ${nome}.`);
+    qc.invalidateQueries({ queryKey: ["coSEXYZes"] });
+  }
+
+  return (
+    <div>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-widest text-accent">Sua próxima conexão</p>
+          <h1 className="text-4xl font-extrabold">Descobrir pessoas</h1>
+          <p className="text-sm text-muted-foreground">
+            {filtros.idadeMin}–{filtros.idadeMax} anos · {filtros.genero || "Todos os gêneros"} · {[filtros.cidade, filtros.estado].filter(Boolean).join("/") || "Todo o Brasil"}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => { setOcultos(new Set()); refetch(); }} disabled={isFetching}><Shuffle className="size-4" /> Embaralhar</Button>
+          <Button variant="secondary" onClick={() => setAberto(!aberto)}><SlidersHorizontal className="size-4" /> Filtros</Button>
+        </div>
+      </div>
+
+      {aberto && (
+        <div className="mb-6 grid gap-4 rounded-3xl border bg-card p-5 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="space-y-1.5"><Label>Idade mínima</Label><Input type="number" min={18} max={99} value={rascunho.idadeMin} onChange={(e) => setRascunho({ ...rascunho, idadeMin: Math.max(18, +e.target.value) })} /></div>
+          <div className="space-y-1.5"><Label>Idade máxima</Label><Input type="number" min={18} max={99} value={rascunho.idadeMax} onChange={(e) => setRascunho({ ...rascunho, idadeMax: +e.target.value })} /></div>
+          <div className="space-y-1.5"><Label>Gênero</Label>
+            <select className={selectClass} value={rascunho.genero} onChange={(e) => setRascunho({ ...rascunho, genero: e.target.value })}>
+              <option value="">Todos</option>{GENEROS.map((g) => <option key={g}>{g}</option>)}</select></div>
+          <div className="space-y-1.5"><Label>Estado</Label>
+            <select className={selectClass} value={rascunho.estado} onChange={(e) => setRascunho({ ...rascunho, estado: e.target.value })}>
+              <option value="">Todos</option>{ESTADOS.map((u) => <option key={u}>{u}</option>)}</select></div>
+          <div className="space-y-1.5"><Label>Cidade</Label><Input placeholder="Qualquer" value={rascunho.cidade} onChange={(e) => setRascunho({ ...rascunho, cidade: e.target.value })} /></div>
+          <div className="flex gap-2 lg:col-span-5">
+            <Button onClick={aplicar}>Aplicar filtros</Button>
+            <Button variant="ghost" onClick={() => setRascunho(PADRAO)}>Limpar</Button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <p className="text-muted-foreground">Buscando pessoas...</p>
+      ) : visiveis.length === 0 ? (
+        <div className="rounded-3xl border bg-card p-10 text-center">
+          <h3 className="text-xl font-bold">Ninguém novo por aqui</h3>
+          <p className="mt-2 text-sm text-muted-foreground">Tente ampliar a faixa etária ou a região nos filtros.</p>
+        </div>
+      ) : (
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {visiveis.map((p) => (
+            <PerfilCard key={p.id} p={p} foto={urls[p.fotos[0]]}>
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => setOcultos((s) => new Set(s).add(p.id))}><X className="size-4" /> Pular</Button>
+                <Button className="flex-1" onClick={() => curtir(p.id, p.nome)}><Heart className="size-4" /> Curtir</Button>
+              </div>
+            </PerfilCard>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+Created
+matches.tsx
+
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { toast } from "sonner";
+import { Heart, MessageCircle } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { PerfilCard } from "@/components/PerfilCard";
+import { useCoSEXYZes, type Perfil } from "@/lib/dados";
+import { useFotoUrls } from "@/lib/fotos";
+
+export const Route = createFileRoute("/_authenticated/matches")({
+  head: () => ({
+    meta: [
+      { title: "Curtidas e matches | SEXYZ" },
+      { name: "description", content: "Veja quem curtiu você e seus matches." },
+      { property: "og:title", content: "Curtidas e matches | SEXYZ" },
+      { property: "og:description", content: "Veja quem curtiu você e seus matches." },
+    ],
+  }),
+  component: Matches,
+});
+
+type Aba = "matches" | "curtiramVoce" | "vocêCurtiu";
+
+function Matches() {
+  const { userId } = Route.useRouteContext();
+  const qc = useQueryClient();
+  const { data, isLoading } = useCoSEXYZes(userId);
+  const [aba, setAba] = useState<Aba>("curtiramVoce");
+  const lista: Perfil[] = data?.[aba] ?? [];
+  const { data: urls = {} } = useFotoUrls(lista.map((p) => p.fotos[0]).filter(Boolean));
+
+  async function curtirDeVolta(p: Perfil) {
+    const { error } = await supabase.from("likes").insert({ liker_id: userId, liked_id: p.id });
+    if (error) return toast.error("Não foi possível curtir.");
+    toast.success(`É um match com ${p.nome}!`);
+    qc.invalidateQueries({ queryKey: ["coSEXYZes"] });
+    setAba("matches");
+  }
+  async function descurtir(p: Perfil) {
+    await supabase.from("likes").delete().eq("liker_id", userId).eq("liked_id", p.id);
+    qc.invalidateQueries({ queryKey: ["coSEXYZes"] });
+  }
+
+  const abas: { id: Aba; label: string }[] = [
+    { id: "curtiramVoce", label: `Curtiram você (${data?.curtiramVoce.length ?? 0})` },
+    { id: "matches", label: `Matches (${data?.matches.length ?? 0})` },
+    { id: "vocêCurtiu", label: `Você curtiu (${data?.vocêCurtiu.length ?? 0})` },
+  ];
+
+  return (
+    <div>
+      <h1 className="mb-5 text-4xl font-extrabold">Curtidas & Matches</h1>
+      <div className="mb-6 flex flex-wrap gap-2">
+        {abas.map((a) => (
+          <Button key={a.id} variant={aba === a.id ? "default" : "secondary"} onClick={() => setAba(a.id)}>{a.label}</Button>
+        ))}
+      </div>
+      {isLoading ? <p className="text-muted-foreground">Carregando...</p> : lista.length === 0 ? (
+        <div className="rounded-3xl border bg-card p-10 text-center text-muted-foreground">
+          {aba === "curtiramVoce" ? "Ninguém curtiu você ainda. Complete seu perfil com fotos para chamar atenção!" :
+           aba === "matches" ? "Nenhum match ainda. Quando alguém que você curtiu curtir você de volta, aparece aqui." :
+           "Você ainda não curtiu ninguém."}
+          <div className="mt-4"><Button asChild><Link to="/descobrir">Descobrir pessoas</Link></Button></div>
+        </div>
+      ) : (
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {lista.map((p) => (
+            <PerfilCard key={p.id} p={p} foto={urls[p.fotos[0]]}>
+              {aba === "curtiramVoce" && <Button className="w-full" onClick={() => curtirDeVolta(p)}><Heart className="size-4" /> Curtir de volta</Button>}
+              {aba === "matches" && <Button asChild className="w-full"><Link to="/mensagens" search={{ com: p.id }}><MessageCircle className="size-4" /> Conversar</Link></Button>}
+              {aba === "vocêCurtiu" && <Button variant="outline" className="w-full" onClick={() => descurtir(p)}>Desfazer curtida</Button>}
+            </PerfilCard>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+Created
+mensagens.tsx
+
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { Send } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Avatar } from "@/components/AppShell";
+import { useCoSEXYZes } from "@/lib/dados";
+import { useFotoUrls } from "@/lib/fotos";
+
+export const Route = createFileRoute("/_authenticated/mensagens")({
+  validateSearch: (s: Record<string, unknown>) => ({ com: typeof s.com === "string" ? s.com : undefined }),
+  head: () => ({
+    meta: [
+      { title: "Mensagens | SEXYZ" },
+      { name: "description", content: "Converse com seus matches." },
+      { property: "og:title", content: "Mensagens | SEXYZ" },
+      { property: "og:description", content: "Converse com seus matches." },
+    ],
+  }),
+  component: Mensagens,
+});
+
+function Mensagens() {
+  const { userId } = Route.useRouteContext();
+  const { com } = Route.useSearch();
+  const nav = useNavigate({ from: "/mensagens" });
+  const { data: coSEXYZes } = useCoSEXYZes(userId);
+  const matches = coSEXYZes?.matches ?? [];
+  const { data: urls = {} } = useFotoUrls(matches.map((p) => p.fotos[0]).filter(Boolean));
+  const ativo = matches.find((m) => m.id === com);
+  const [texto, setTexto] = useState("");
+  const fimRef = useRef<HTMLDivElement>(null);
+
+  const { data: msgs = [], refetch } = useQuery({
+    queryKey: ["msgs", userId, com],
+    enabled: !!com,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("messages").select("*")
+        .or(`and(sender_id.eq.${userId},receiver_id.eq.${com}),and(sender_id.eq.${com},receiver_id.eq.${userId})`)
+        .order("created_at");
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  useEffect(() => {
+    const ch = supabase
+      .channel(`msgs-${Math.random().toString(36).slice(2)}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, () => refetch())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [refetch]);
+
+  useEffect(() => { fimRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs.length]);
+
+  async function enviar(e: React.FormEvent) {
+    e.preventDefault();
+    const t = texto.trim();
+    if (!t || !com) return;
+    setTexto("");
+    const { error } = await supabase.from("messages").insert({ sender_id: userId, receiver_id: com, content: t });
+    if (error) { toast.error("Mensagem não enviada. Vocês precisam ter dado match."); setTexto(t); return; }
+    refetch();
+  }
+
+  return (
+    <div>
+      <h1 className="mb-5 text-4xl font-extrabold">Mensagens</h1>
+      <div className="grid gap-4 md:grid-cols-[280px_1fr]">
+        <aside className="rounded-3xl border bg-card p-3">
+          <h3 className="px-2 pb-2 text-sm font-semibold text-muted-foreground">Seus matches</h3>
+          {matches.length === 0 && (
+            <p className="p-2 text-sm text-muted-foreground">Sem matches ainda. <Link to="/descobrir" className="text-primary">Descobrir pessoas</Link></p>
+          )}
+          {matches.map((m) => (
+            <button key={m.id} onClick={() => nav({ search: { com: m.id } })}
+              className={`flex w-full items-center gap-3 rounded-2xl p-2 text-left transition-colors hover:bg-secondary ${m.id === com ? "bg-secondary" : ""}`}>
+              <Avatar url={urls[m.fotos[0]]} nome={m.nome} size={44} />
+              <span className="font-semibold">{m.nome}</span>
+            </button>
+          ))}
+        </aside>
+
+        <section className="flex h-[65vh] flex-col rounded-3xl border bg-card">
+          {!ativo ? (
+            <div className="grid flex-1 place-items-center p-6 text-center text-muted-foreground">Escolha um match para conversar.</div>
+          ) : (
+            <>
+              <div className="flex items-center gap-3 border-b p-4">
+                <Avatar url={urls[ativo.fotos[0]]} nome={ativo.nome} size={40} />
+                <b>{ativo.nome}</b>
+              </div>
+              <div className="flex-1 space-y-2 overflow-y-auto p-4">
+                {msgs.length === 0 && <p className="text-center text-sm text-muted-foreground">Vocês deram match! Diga um oi 👋</p>}
+                {msgs.map((m) => {
+                  const minha = m.sender_id === userId;
+                  return (
+                    <div key={m.id} className={`flex ${minha ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm ${minha ? "bg-primary text-primary-foreground" : "bg-bubble"}`}>
+                        {m.content}
+                        <div className="mt-0.5 text-[10px] opacity-60">{new Date(m.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div ref={fimRef} />
+              </div>
+              <form onSubmit={enviar} className="flex gap-2 border-t p-3">
+                <Input placeholder="Escreva uma mensagem..." value={texto} onChange={(e) => setTexto(e.target.value)} maxLength={2000} />
+                <Button type="submit" size="icon" aria-label="Enviar"><Send className="size-4" /></Button>
+              </form>
+            </>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+Created
+perfil.tsx
+
+import { createFileRoute } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { Plus, Star, Trash2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { selectClass } from "@/components/AuthCard";
+import { useFotoUrls } from "@/lib/fotos";
+import { ESTADOS, GENEROS, MAX_FOTOS } from "@/lib/regras";
+
+export const Route = createFileRoute("/_authenticated/perfil")({
+  head: () => ({
+    meta: [
+      { title: "Meu perfil | SEXYZ" },
+      { name: "description", content: "Edite suas informações e fotos." },
+      { property: "og:title", content: "Meu perfil | SEXYZ" },
+      { property: "og:description", content: "Edite suas informações e fotos." },
+    ],
+  }),
+  component: Perfil,
+});
+
+function Perfil() {
+  const { userId } = Route.useRouteContext();
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [enviando, setEnviando] = useState(false);
+  const { data: perfil } = useQuery({
+    queryKey: ["perfil", userId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
+      if (error) throw error;
+      return data;
+    },
+  });
+  const [f, setF] = useState({ nome: "", bio: "", cidade: "", estado: "", interesses: "", genero: "" });
+  useEffect(() => {
+    if (perfil) setF({ nome: perfil.nome, bio: perfil.bio ?? "", cidade: perfil.cidade ?? "", estado: perfil.estado ?? "", interesses: perfil.interesses ?? "", genero: perfil.genero ?? "" });
+  }, [perfil]);
+  const fotos = perfil?.fotos ?? [];
+  const { data: urls = {} } = useFotoUrls(fotos);
+
+  async function salvarFotos(novas: string[]) {
+    const { error } = await supabase.from("profiles").update({ fotos: novas }).eq("id", userId);
+    if (error) throw error;
+    qc.invalidateQueries({ queryKey: ["perfil", userId] });
+  }
+
+  async function adicionar(files: FileList | null) {
+    if (!files?.length) return;
+    const livres = MAX_FOTOS - fotos.length;
+    const lista = Array.from(files).slice(0, livres);
+    if (!lista.length) return toast.error(`Máximo de ${MAX_FOTOS} fotos.`);
+    setEnviando(true);
+    try {
+      const novos: string[] = [];
+      for (const file of lista) {
+        if (!file.type.startsWith("image/")) continue;
+        if (file.size > 5 * 1024 * 1024) { toast.error(`${file.name} passa de 5 MB.`); continue; }
+        const ext = file.name.split(".").pop() || "jpg";
+        const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+        const { error } = await supabase.storage.from("fotos").upload(path, file, { contentType: file.type });
+        if (error) { toast.error("Falha ao enviar " + file.name); continue; }
+        novos.push(path);
+      }
+      if (novos.length) { await salvarFotos([...fotos, ...novos]); toast.success("Fotos adicionadas!"); }
+    } finally {
+      setEnviando(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function remover(path: string) {
+    await supabase.storage.from("fotos").remove([path]);
+    await salvarFotos(fotos.filter((p) => p !== path));
+  }
+  async function principal(path: string) {
+    await salvarFotos([path, ...fotos.filter((p) => p !== path)]);
+  }
+
+  async function salvar() {
+    const { error } = await supabase.from("profiles").update(f).eq("id", userId);
+    if (error) return toast.error("Erro ao salvar.");
+    toast.success("Perfil atualizado!");
+    qc.invalidateQueries({ queryKey: ["perfil", userId] });
+  }
+
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
+
+  return (
+    <div>
+      <div className="mb-6 flex items-end justify-between">
+        <div><p className="text-sm font-semibold uppercase tracking-widest text-accent">Seu espaço</p><h1 className="text-4xl font-extrabold">Meu perfil</h1></div>
+        <Button onClick={salvar}>Salvar alterações</Button>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="space-y-4 rounded-3xl border bg-card p-6">
+          <h3 className="text-xl font-bold">Informações pessoais</h3>
+          <div className="space-y-1.5"><Label>Apelido</Label><Input value={f.nome} onChange={set("nome")} /></div>
+          <div className="space-y-1.5"><Label>Biografia</Label><Textarea rows={4} value={f.bio} onChange={set("bio")} placeholder="Conte um pouco sobre você" /></div>
+          <div className="space-y-1.5"><Label>Gênero</Label>
+            <select className={selectClass} value={f.genero} onChange={set("genero")}><option value="">Selecione</option>{GENEROS.map((g) => <option key={g}>{g}</option>)}</select></div>
+          <div className="grid grid-cols-[1fr_6rem] gap-3">
+            <div className="space-y-1.5"><Label>Cidade</Label><Input value={f.cidade} onChange={set("cidade")} /></div>
+            <div className="space-y-1.5"><Label>UF</Label>
+              <select className={selectClass} value={f.estado} onChange={set("estado")}><option value="">--</option>{ESTADOS.map((u) => <option key={u}>{u}</option>)}</select></div>
+          </div>
+          <div className="space-y-1.5"><Label>Interesses (separados por vírgula)</Label><Input value={f.interesses} onChange={set("interesses")} placeholder="Música, viagens, cinema" /></div>
+        </section>
+
+        <section className="rounded-3xl border bg-card p-6">
+          <h3 className="text-xl font-bold">Galeria de fotos</h3>
+          <p className="mb-4 text-sm text-muted-foreground">Até {MAX_FOTOS} fotos. A primeira é a principal. ({fotos.length}/{MAX_FOTOS})</p>
+          <div className="grid grid-cols-3 gap-3">
+            {Array.from({ length: MAX_FOTOS }).map((_, i) => {
+              const path = fotos[i];
+              return path ? (
+                <div key={path} className="group relative aspect-square overflow-hidden rounded-2xl bg-secondary">
+                  {urls[path] && <img src={urls[path]} alt={`Foto ${i + 1}`} className="h-full w-full object-cover" />}
+                  {i === 0 && <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground">Principal</span>}
+                  <div className="absolute inset-x-0 bottom-0 flex justify-center gap-1 bg-background/70 p-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    {i !== 0 && <Button size="icon" variant="ghost" className="size-7" aria-label="Tornar principal" onClick={() => principal(path)}><Star className="size-4" /></Button>}
+                    <Button size="icon" variant="ghost" className="size-7" aria-label="Remover foto" onClick={() => remover(path)}><Trash2 className="size-4" /></Button>
+                  </div>
+                </div>
+              ) : (
+                <button key={i} disabled={enviando} onClick={() => fileRef.current?.click()}
+                  className="grid aspect-square place-items-center rounded-2xl border-2 border-dashed text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+                  <span className="flex flex-col items-center text-xs"><Plus className="size-5" />Foto {i + 1}</span>
+                </button>
+              );
+            })}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => adicionar(e.target.files)} />
+          <Button className="mt-4 w-full" variant="secondary" disabled={enviando || fotos.length >= MAX_FOTOS} onClick={() => fileRef.current?.click()}>
+            {enviando ? "Enviando..." : "Adicionar fotografias"}
+          </Button>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+Created
+route.tsx
+
+import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { supabase } from "@/integrations/supabase/client";
+import { AppShell } from "@/components/AppShell";
+
+export const Route = createFileRoute("/_authenticated")({
+  ssr: false,
+  beforeLoad: async () => {
+    const { data } = await supabase.auth.getUser();
+    if (!data.user) throw redirect({ to: "/login" });
+    return { userId: data.user.id };
+  },
+  component: () => (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  ),
+});
+
+Created
+cadastro.tsx
+
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { AuthCard, selectClass } from "@/components/AuthCard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { DESEJOS, ESTADOS, GENEROS, ORIENTACOES, maiorDeIdade } from "@/lib/regras";
+
+export const Route = createFileRoute("/cadastro")({
+  head: () => ({
+    meta: [
+      { title: "Criar conta | SEXYZ" },
+      { name: "description", content: "Crie seu perfil no SEXYZ e comece a se conectar." },
+      { property: "og:title", content: "Criar conta | SEXYZ" },
+      { property: "og:description", content: "Crie seu perfil no SEXYZ e comece a se conectar." },
+    ],
+  }),
+  component: Cadastro,
+});
+
+function Cadastro() {
+  const [f, setF] = useState({ nome: "", email: "", senha: "", data_nascimento: "", genero: "", orientacao: "", desejo: DESEJOS[0], cidade: "", estado: "" });
+  const [loading, setLoading] = useState(false);
+  const [enviado, setEnviado] = useState(false);
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
+
+  async function cadastrar(e: React.FormEvent) {
+    e.preventDefault();
+    if (!maiorDeIdade(f.data_nascimento)) return toast.error("A plataforma é exclusiva para maiores de 18 anos.");
+    if (f.senha.length < 6) return toast.error("A senha precisa ter pelo menos 6 caracteres.");
+    setLoading(true);
+    const { email, senha, ...meta } = f;
+    const { error } = await supabase.auth.signUp({
+      email, password: senha,
+      options: { emailRedirectTo: `${window.location.origin}/descobrir`, data: meta },
+    });
+    setLoading(false);
+    if (error) return toast.error(error.message.includes("registered") ? "Este e-mail já está cadastrado." : error.message);
+    setEnviado(true);
+  }
+
+  if (enviado)
+    return (
+      <AuthCard title="Confirme seu e-mail">
+        <p className="text-sm">Enviamos um link de confirmação para <b>{f.email}</b>. Clique nele para ativar sua conta e entrar.</p>
+        <Button asChild className="mt-5 w-full"><Link to="/login">Ir para o login</Link></Button>
+      </AuthCard>
+    );
+
+  return (
+    <AuthCard title="Criar sua conta" subtitle="Preencha seus dados para iniciar seu perfil.">
+      <form onSubmit={cadastrar} className="space-y-4">
+        <div className="space-y-1.5"><Label>Nome ou apelido</Label><Input required value={f.nome} onChange={set("nome")} /></div>
+        <div className="space-y-1.5"><Label>E-mail</Label><Input type="email" required value={f.email} onChange={set("email")} /></div>
+        <div className="space-y-1.5"><Label>Senha</Label><Input type="password" required value={f.senha} onChange={set("senha")} /></div>
+        <div className="space-y-1.5"><Label>Data de nascimento</Label><Input type="date" required value={f.data_nascimento} onChange={set("data_nascimento")} /></div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5"><Label>Gênero</Label>
+            <select required className={selectClass} value={f.genero} onChange={set("genero")}><option value="">Selecione</option>{GENEROS.map((g) => <option key={g}>{g}</option>)}</select></div>
+          <div className="space-y-1.5"><Label>Orientação</Label>
+            <select className={selectClass} value={f.orientacao} onChange={set("orientacao")}><option value="">Selecione</option>{ORIENTACOES.map((g) => <option key={g}>{g}</option>)}</select></div>
+        </div>
+        <div className="space-y-1.5"><Label>Desejo encontrar</Label>
+          <select className={selectClass} value={f.desejo} onChange={set("desejo")}>{DESEJOS.map((g) => <option key={g}>{g}</option>)}</select></div>
+        <div className="grid grid-cols-[1fr_6rem] gap-3">
+          <div className="space-y-1.5"><Label>Cidade</Label><Input required value={f.cidade} onChange={set("cidade")} /></div>
+          <div className="space-y-1.5"><Label>UF</Label>
+            <select required className={selectClass} value={f.estado} onChange={set("estado")}><option value="">--</option>{ESTADOS.map((u) => <option key={u}>{u}</option>)}</select></div>
+        </div>
+        <Button type="submit" className="w-full" disabled={loading}>{loading ? "Criando..." : "Criar conta"}</Button>
+      </form>
+      <p className="mt-5 text-center text-sm text-muted-foreground">Já tem conta? <Link to="/login" className="text-primary hover:underline">Entrar</Link></p>
+    </AuthCard>
+  );
+}
+
+Created
+esqueci-senha.tsx
+
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { AuthCard } from "@/components/AuthCard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export const Route = createFileRoute("/esqueci-senha")({
+  head: () => ({
+    meta: [
+      { title: "Recuperar senha | SEXYZ" },
+      { name: "description", content: "Receba um link para criar uma nova senha." },
+      { property: "og:title", content: "Recuperar senha | SEXYZ" },
+      { property: "og:description", content: "Receba um link para criar uma nova senha." },
+    ],
+  }),
+  component: Esqueci,
+});
+
+function Esqueci() {
+  const [email, setEmail] = useState("");
+  const [enviado, setEnviado] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function enviar(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    setLoading(false);
+    if (error) return toast.error("Não foi possível enviar o e-mail. Tente novamente.");
+    setEnviado(true);
+  }
+
+  return (
+    <AuthCard title="Recuperar senha" subtitle="Enviaremos um link para você criar uma nova senha.">
+      {enviado ? (
+        <p className="text-sm">Pronto! Se existir uma conta com <b>{email}</b>, você receberá o link em instantes. Confira também a caixa de spam.</p>
+      ) : (
+        <form onSubmit={enviar} className="space-y-4">
+          <div className="space-y-1.5"><Label>E-mail</Label><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+          <Button type="submit" className="w-full" disabled={loading}>{loading ? "Enviando..." : "Enviar link"}</Button>
+        </form>
+      )}
+      <p className="mt-5 text-center text-sm"><Link to="/login" className="text-primary hover:underline">Voltar ao login</Link></p>
+    </AuthCard>
+  );
+}
+
+Created
+login.tsx
+
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { AuthCard } from "@/components/AuthCard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export const Route = createFileRoute("/login")({
+  head: () => ({
+    meta: [
+      { title: "Entrar | SEXYZ" },
+      { name: "description", content: "Entre na sua conta SEXYZ." },
+      { property: "og:title", content: "Entrar | SEXYZ" },
+      { property: "og:description", content: "Entre na sua conta SEXYZ." },
+    ],
+  }),
+  component: Login,
+});
+
+function Login() {
+  const nav = useNavigate();
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function entrar(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
+    setLoading(false);
+    if (error) {
+      toast.error(error.message.includes("confirmed") ? "Confirme seu e-mail antes de entrar." : "E-mail ou senha incorretos.");
+      return;
+    }
+    nav({ to: "/descobrir" });
+  }
+
+  return (
+    <AuthCard title="Bem-vindo de volta" subtitle="Entre para ver quem está esperando por você.">
+      <form onSubmit={entrar} className="space-y-4">
+        <div className="space-y-1.5"><Label>E-mail</Label><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+        <div className="space-y-1.5">
+          <div className="flex justify-between">
+            <Label>Senha</Label>
+            <Link to="/esqueci-senha" className="text-xs text-primary hover:underline">Esqueci minha senha</Link>
+          </div>
+          <Input type="password" required value={senha} onChange={(e) => setSenha(e.target.value)} />
+        </div>
+        <Button type="submit" className="w-full" disabled={loading}>{loading ? "Entrando..." : "Entrar"}</Button>
+      </form>
+      <p className="mt-5 text-center text-sm text-muted-foreground">
+        Ainda não tem conta? <Link to="/cadastro" className="text-primary hover:underline">Criar conta</Link>
+      </p>
+    </AuthCard>
+  );
+}
+
+Created
+reset-password.tsx
+
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { AuthCard } from "@/components/AuthCard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export const Route = createFileRoute("/reset-password")({
+  head: () => ({
+    meta: [
+      { title: "Nova senha | SEXYZ" },
+      { name: "description", content: "Defina uma nova senha para sua conta SEXYZ." },
+      { property: "og:title", content: "Nova senha | SEXYZ" },
+      { property: "og:description", content: "Defina uma nova senha para sua conta SEXYZ." },
+    ],
+  }),
+  component: Reset,
+});
+
+function Reset() {
+  const nav = useNavigate();
+  const [senha, setSenha] = useState("");
+  const [conf, setConf] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    if (senha.length < 6) return toast.error("A senha precisa ter pelo menos 6 caracteres.");
+    if (senha !== conf) return toast.error("As senhas não coincidem.");
+    setLoading(true);
+    const { error } = await supabase.auth.updateUser({ password: senha });
+    setLoading(false);
+    if (error) return toast.error("Link expirado ou inválido. Peça um novo link.");
+    toast.success("Senha alterada!");
+    nav({ to: "/descobrir" });
+  }
+
+  return (
+    <AuthCard title="Criar nova senha">
+      <form onSubmit={salvar} className="space-y-4">
+        <div className="space-y-1.5"><Label>Nova senha</Label><Input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} /></div>
+        <div className="space-y-1.5"><Label>Confirmar senha</Label><Input type="password" value={conf} onChange={(e) => setConf(e.target.value)} /></div>
+        <Button type="submit" className="w-full" disabled={loading}>Salvar nova senha</Button>
+      </form>
+    </AuthCard>
+  );
+}
+
+Created
+regras.test.ts
+
+import { describe, it, expect } from "vitest";
+import { calcularIdade, maiorDeIdade } from "@/lib/regras";
+
+const hoje = new Date("2026-11-07T12:00:00");
+
+describe("regras de idade", () => {
+  it("bloqueia menores de 18 anos", () => {
+    expect(maiorDeIdade("2008-11-08", hoje)).toBe(false);
+  });
+  it("aceita quem faz 18 anos hoje", () => {
+    expect(maiorDeIdade("2008-11-07", hoje)).toBe(true);
+  });
+  it("calcula idade corretamente", () => {
+    expect(calcularIdade("1998-12-01", hoje)).toBe(27);
+  });
+});
+
+Created
+config.toml
+
+project_id = "ytkslzhluhmingdhqitp"
+
+Modified
+bun.lock
+
+        "@radix-ui/react-toggle-group": "^1.1.11",
+        "@radix-ui/react-tooltip": "^1.2.8",
+        "@supabase/supabase-js": "^2.119.0",
+        "@tailwindcss/vite": "^4.2.1",
+        "@tanstack/react-query": "^5.101.1",
+        "@types/react-dom": "^19.2.0",
+        "@vitejs/plugin-react": "^5.2.0",
+        "drizzle-kit": "0.x",
+        "drizzle-orm": "0.x",
+        "eslint": "^9.32.0",
+        "eslint-config-prettier": "^10.1.1",
+        "jsdom": "^20.0.3",
+        "nitro": "3.0.260603-beta",
+        "postgres": "^4.1.0",
+        "prettier": "^3.7.3",
+        "typescript": "^5.8.3",
+    "@date-fns/tz": ["@date-fns/tz@1.5.0", "", {}, "sha512-lwYN/vDPeNRULcepoE/LO2Pgx+7/RV+S9ARfbc9lr2DtGkOD7pAiruHvbR1RX3Qyf6ja47EWJDMsNK5vK08DJg=="],
+
+    "@drizzle-team/brocli": ["@drizzle-team/brocli@0.10.2", "", {}, "sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w=="],
+
+    "@emnapi/core": ["@emnapi/core@2.0.0-alpha.3", "", { "dependencies": { "@emnapi/wasi-threads": "2.0.1", "tslib": "^2.4.0" } }, "sha512-AZypUeJ/yByuxyS7BlSNRDOMLMlROYtjYdIAuBmJssVz1UJDSeYxLrdizhXCFYhedC5bqd/ASy8EuNXbVVXp9g=="],
+
+    "@emnapi/wasi-threads": ["@emnapi/wasi-threads@2.0.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-9DsSk+o5NBX0CCJT8s0EROGSGxjR/tKu6aBTaVyq+SjAEQH4XcdcRxPBRzsBLizTTJ49MJjF+jgu3qnO9GLQcQ=="],
+
+    "@esbuild-kit/core-utils": ["@esbuild-kit/core-utils@3.3.2", "", { "dependencies": { "esbuild": "~0.18.20", "source-map-support": "^0.5.21" } }, "sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ=="],
+
+    "@esbuild-kit/esm-loader": ["@esbuild-kit/esm-loader@2.6.5", "", { "dependencies": { "@esbuild-kit/core-utils": "^3.3.2", "get-tsconfig": "^4.7.0" } }, "sha512-FxEMIkJKnodyA1OaCUoEvbYRkoZlLZ4d/eXFu9Fh8CbBBgP5EmZxrfTRyN0qpXZ4vOvqnE5YdRdcrmUUXuU+dA=="],
+
+    "@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.25.12", "", { "os": "aix", "cpu": "ppc64" }, "sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA=="],
+
+    "@esbuild/android-arm": ["@esbuild/android-arm@0.25.12", "", { "os": "android", "cpu": "arm" }, "sha512-VJ+sKvNA/GE7Ccacc9Cha7bpS8nyzVv0jdVgwNDaR4gDMC/2TTRc33Ip8qrNYUcpkOHUT5OZ0bUcNNVZQ9RLlg=="],
+
+    "@esbuild/android-arm64": ["@esbuild/android-arm64@0.25.12", "", { "os": "android", "cpu": "arm64" }, "sha512-6AAmLG7zwD1Z159jCKPvAxZd4y/VTO0VkprYy+3N2FtJ8+BQWFXU+OxARIwA46c5tdD9SsKGZ/1ocqBS/gAKHg=="],
+
+    "@esbuild/android-x64": ["@esbuild/android-x64@0.25.12", "", { "os": "android", "cpu": "x64" }, "sha512-5jbb+2hhDHx5phYR2By8GTWEzn6I9UqR11Kwf22iKbNpYrsmRB18aX/9ivc5cabcUiAT/wM+YIZ6SG9QO6a8kg=="],
+
+    "@esbuild/darwin-arm64": ["@esbuild/darwin-arm64@0.25.12", "", { "os": "darwin", "cpu": "arm64" }, "sha512-N3zl+lxHCifgIlcMUP5016ESkeQjLj/959RxxNYIthIg+CQHInujFuXeWbWMgnTo4cp5XVHqFPmpyu9J65C1Yg=="],
+
+    "@esbuild/darwin-x64": ["@esbuild/darwin-x64@0.25.12", "", { "os": "darwin", "cpu": "x64" }, "sha512-HQ9ka4Kx21qHXwtlTUVbKJOAnmG1ipXhdWTmNXiPzPfWKpXqASVcWdnf2bnL73wgjNrFXAa3yYvBSd9pzfEIpA=="],
+
+    "@esbuild/freebsd-arm64": ["@esbuild/freebsd-arm64@0.25.12", "", { "os": "freebsd", "cpu": "arm64" }, "sha512-gA0Bx759+7Jve03K1S0vkOu5Lg/85dou3EseOGUes8flVOGxbhDDh/iZaoek11Y8mtyKPGF3vP8XhnkDEAmzeg=="],
+
+    "@esbuild/freebsd-x64": ["@esbuild/freebsd-x64@0.25.12", "", { "os": "freebsd", "cpu": "x64" }, "sha512-TGbO26Yw2xsHzxtbVFGEXBFH0FRAP7gtcPE7P5yP7wGy7cXK2oO7RyOhL5NLiqTlBh47XhmIUXuGciXEqYFfBQ=="],
+
+    "@esbuild/linux-arm": ["@esbuild/linux-arm@0.25.12", "", { "os": "linux", "cpu": "arm" }, "sha512-lPDGyC1JPDou8kGcywY0YILzWlhhnRjdof3UlcoqYmS9El818LLfJJc3PXXgZHrHCAKs/Z2SeZtDJr5MrkxtOw=="],
+
+    "@esbuild/linux-arm64": ["@esbuild/linux-arm64@0.25.12", "", { "os": "linux", "cpu": "arm64" }, "sha512-8bwX7a8FghIgrupcxb4aUmYDLp8pX06rGh5HqDT7bB+8Rdells6mHvrFHHW2JAOPZUbnjUpKTLg6ECyzvas2AQ=="],
+
+    "@esbuild/linux-ia32": ["@esbuild/linux-ia32@0.25.12", "", { "os": "linux", "cpu": "ia32" }, "sha512-0y9KrdVnbMM2/vG8KfU0byhUN+EFCny9+8g202gYqSSVMonbsCfLjUO+rCci7pM0WBEtz+oK/PIwHkzxkyharA=="],
+
+    "@esbuild/linux-loong64": ["@esbuild/linux-loong64@0.25.12", "", { "os": "linux", "cpu": "none" }, "sha512-h///Lr5a9rib/v1GGqXVGzjL4TMvVTv+s1DPoxQdz7l/AYv6LDSxdIwzxkrPW438oUXiDtwM10o9PmwS/6Z0Ng=="],
+
+    "@esbuild/linux-mips64el": ["@esbuild/linux-mips64el@0.25.12", "", { "os": "linux", "cpu": "none" }, "sha512-iyRrM1Pzy9GFMDLsXn1iHUm18nhKnNMWscjmp4+hpafcZjrr2WbT//d20xaGljXDBYHqRcl8HnxbX6uaA/eGVw=="],
+
+    "@esbuild/linux-ppc64": ["@esbuild/linux-ppc64@0.25.12", "", { "os": "linux", "cpu": "ppc64" }, "sha512-9meM/lRXxMi5PSUqEXRCtVjEZBGwB7P/D4yT8UG/mwIdze2aV4Vo6U5gD3+RsoHXKkHCfSxZKzmDssVlRj1QQA=="],
+
+    "@esbuild/linux-riscv64": ["@esbuild/linux-riscv64@0.25.12", "", { "os": "linux", "cpu": "none" }, "sha512-Zr7KR4hgKUpWAwb1f3o5ygT04MzqVrGEGXGLnj15YQDJErYu/BGg+wmFlIDOdJp0PmB0lLvxFIOXZgFRrdjR0w=="],
+
+    "@esbuild/linux-s390x": ["@esbuild/linux-s390x@0.25.12", "", { "os": "linux", "cpu": "s390x" }, "sha512-MsKncOcgTNvdtiISc/jZs/Zf8d0cl/t3gYWX8J9ubBnVOwlk65UIEEvgBORTiljloIWnBzLs4qhzPkJcitIzIg=="],
+
+    "@esbuild/linux-x64": ["@esbuild/linux-x64@0.25.12", "", { "os": "linux", "cpu": "x64" }, "sha512-uqZMTLr/zR/ed4jIGnwSLkaHmPjOjJvnm6TVVitAa08SLS9Z0VM8wIRx7gWbJB5/J54YuIMInDquWyYvQLZkgw=="],
+
+    "@esbuild/netbsd-arm64": ["@esbuild/netbsd-arm64@0.25.12", "", { "os": "none", "cpu": "arm64" }, "sha512-xXwcTq4GhRM7J9A8Gv5boanHhRa/Q9KLVmcyXHCTaM4wKfIpWkdXiMog/KsnxzJ0A1+nD+zoecuzqPmCRyBGjg=="],
+
+    "@esbuild/netbsd-x64": ["@esbuild/netbsd-x64@0.25.12", "", { "os": "none", "cpu": "x64" }, "sha512-Ld5pTlzPy3YwGec4OuHh1aCVCRvOXdH8DgRjfDy/oumVovmuSzWfnSJg+VtakB9Cm0gxNO9BzWkj6mtO1FMXkQ=="],
+
+    "@esbuild/openbsd-arm64": ["@esbuild/openbsd-arm64@0.25.12", "", { "os": "openbsd", "cpu": "arm64" }, "sha512-fF96T6KsBo/pkQI950FARU9apGNTSlZGsv1jZBAlcLL1MLjLNIWPBkj5NlSz8aAzYKg+eNqknrUJ24QBybeR5A=="],
+
+    "@esbuild/openbsd-x64": ["@esbuild/openbsd-x64@0.25.12", "", { "os": "openbsd", "cpu": "x64" }, "sha512-MZyXUkZHjQxUvzK7rN8DJ3SRmrVrke8ZyRusHlP+kuwqTcfWLyqMOE3sScPPyeIXN/mDJIfGXvcMqCgYKekoQw=="],
+
+    "@esbuild/openharmony-arm64": ["@esbuild/openharmony-arm64@0.25.12", "", { "os": "none", "cpu": "arm64" }, "sha512-rm0YWsqUSRrjncSXGA7Zv78Nbnw4XL6/dzr20cyrQf7ZmRcsovpcRBdhD43Nuk3y7XIoW2OxMVvwuRvk9XdASg=="],
+
+    "@esbuild/sunos-x64": ["@esbuild/sunos-x64@0.25.12", "", { "os": "sunos", "cpu": "x64" }, "sha512-3wGSCDyuTHQUzt0nV7bocDy72r2lI33QL3gkDNGkod22EsYl04sMf0qLb8luNKTOmgF/eDEDP5BFNwoBKH441w=="],
+
+    "@esbuild/win32-arm64": ["@esbuild/win32-arm64@0.25.12", "", { "os": "win32", "cpu": "arm64" }, "sha512-rMmLrur64A7+DKlnSuwqUdRKyd3UE7oPJZmnljqEptesKM8wx9J8gx5u0+9Pq0fQQW8vqeKebwNXdfOyP+8Bsg=="],
+
+    "@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.25.12", "", { "os": "win32", "cpu": "ia32" }, "sha512-HkqnmmBoCbCwxUKKNPBixiWDGCpQGVsrQfJoVGYLPT41XWF8lHuE5N6WhVia2n4o5QK5M4tYr21827fNhi4byQ=="],
+
+    "@esbuild/win32-x64": ["@esbuild/win32-x64@0.25.12", "", { "os": "win32", "cpu": "x64" }, "sha512-alJC0uCZpTFrSL0CCDjcgleBXPnCrEAhTBILpeAp7M/OFgoqtAetfBzX0xM00MUsVVPpVjlPuMbREqnZCXaTnA=="],
+
+    "@eslint-community/eslint-utils": ["@eslint-community/eslint-utils@4.10.1", "", { "dependencies": { "eslint-visitor-keys": "^3.4.3" }, "peerDependencies": { "eslint": "^6.0.0 || ^7.0.0 || >=8.0.0" } }, "sha512-cuadcxVFE8sDK6iWJbs8Sn0av2Nrh2QSGQhVlBW9AaAHqHwjWsZHT8LJ4hFGPh7ASBV2deFdM7H/DPjulmh8rg=="],
+
+    "@standard-schema/utils": ["@standard-schema/utils@0.3.0", "", {}, "sha512-e7Mew686owMaPJVNNLs55PUvgz371nKgwsc4vxE49zsODpJEnxgxRo2y/OKrqueavXgZNMDVj3DdHFlaSAeU8g=="],
+
+    "@supabase/auth-js": ["@supabase/auth-js@2.119.0", "", { "dependencies": { "tslib": "2.8.1" } }, "sha512-WI7KqJRxqZjm77PlRO/VfKretL4SG8g8stWfBmpyx9To+fFapZlSbXA8QkduoMvr72rRpIF24ZLrjktBrp+ZFA=="],
+
+    "@supabase/functions-js": ["@supabase/functions-js@2.119.0", "", { "dependencies": { "tslib": "2.8.1" } }, "sha512-0aOdF/Y4lA+62K02nwZClfAthXmFEml0od42q3yy/9t3bBitomAOYEatTFSnxT/5UeeIDNn2DOnXTdAP0sqGNQ=="],
+
+    "@supabase/phoenix": ["@supabase/phoenix@0.4.5", "", {}, "sha512-aAn9H9ovVyeApKy11OWOrrOGq8DV68yWeH4ud2lN9fzn4aO8Zb5GLL9m1pUg9nLqIcT+ZDfAcsZe0E/nqdv2lw=="],
+
+    "@supabase/postgrest-js": ["@supabase/postgrest-js@2.119.0", "", { "dependencies": { "tslib": "2.8.1" } }, "sha512-qBmcjEFO7Ptyf5qvOXYJa1s4bfA4zsMIFf2i+h2zd6RRTDLwquX8z1mnS9djNOJjbiO1OGFh5Y2Lc2k2pA8TMw=="],
+
+    "@supabase/realtime-js": ["@supabase/realtime-js@2.119.0", "", { "dependencies": { "@supabase/phoenix": "0.4.5", "tslib": "2.8.1" } }, "sha512-fPzxt+SAYweqsZUCSZma2dvN+HT6lVjwWj8BbkVwapW6wNf1odUi+ATYN7svX4Zm9vt0kz0l0VzINAUAA38FEg=="],
+
+    "@supabase/storage-js": ["@supabase/storage-js@2.119.0", "", { "dependencies": { "iceberg-js": "^0.8.1", "tslib": "2.8.1" } }, "sha512-htx1dSCnSJVPlx2BNSgLSUDvLMxuGbYa6pUPl5xoCs4as4cIhBVwuxj78zbggCyPHxLnEXjsV/qvlDsVjpodKw=="],
+
+    "@supabase/supabase-js": ["@supabase/supabase-js@2.119.0", "", { "dependencies": { "@supabase/auth-js": "2.119.0", "@supabase/functions-js": "2.119.0", "@supabase/postgrest-js": "2.119.0", "@supabase/realtime-js": "2.119.0", "@supabase/storage-js": "2.119.0" }, "peerDependencies": { "@opentelemetry/api": ">=1.0.0" }, "optionalPeers": ["@opentelemetry/api"] }, "sha512-MKP49G6bJbPhvsZDegZ/IXS/ITApPgplDCF5+F65KZ5kIArS5Y90WFxwvWYALx2bsxdrSuHvkCiXHYr3dU8+sw=="],
+
+    "@tabby_ai/hijri-converter": ["@tabby_ai/hijri-converter@1.0.5", "", {}, "sha512-r5bClKrcIusDoo049dSL8CawnHR6mRdDwhlQuIgZRNty68q0x8k3Lf1BtPAMxRf/GgnHBnIO4ujd3+GQdLWzxQ=="],
+
+    "browserslist": ["browserslist@4.28.7", "", { "dependencies": { "baseline-browser-mapping": "^2.10.44", "caniuse-lite": "^1.0.30001806", "electron-to-chromium": "^1.5.393", "node-releases": "^2.0.51", "update-browserslist-db": "^1.2.3" }, "bin": { "browserslist": "cli.js" } }, "sha512-JxV13hNrFxqjOc8alRbq9dK1MM79NEXYpma2B2J4wAtpWS5zIEIKqWPGCl7N4o7Uc7B7itylh7SuDujATRyyTw=="],
+
+    "buffer-from": ["buffer-from@1.1.2", "", {}, "sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ=="],
+
+    "call-bind-apply-helpers": ["call-bind-apply-helpers@1.0.2", "", { "dependencies": { "es-errors": "^1.3.0", "function-bind": "^1.1.2" } }, "sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ=="],
+
+    "domexception": ["domexception@4.0.0", "", { "dependencies": { "webidl-conversions": "^7.0.0" } }, "sha512-A2is4PLG+eeSfoTMA95/s4pvAoSo2mKtiM5jlHkAVewmiO8ISFTFKZjH7UAM1Atli/OT/7JHOrJRJiMKUZKYBw=="],
+
+    "drizzle-kit": ["drizzle-kit@0.31.11", "", { "dependencies": { "@drizzle-team/brocli": "^0.10.2", "@esbuild-kit/esm-loader": "^2.5.5", "esbuild": "^0.25.4", "tsx": "^4.21.0" }, "bin": { "drizzle-kit": "bin.cjs" } }, "sha512-YCYqxTLIB2OCqf6w9/Vef13baBVbwQIPcbT4Y56AfO6B9ajZhDhD8Jkveg/hJvT/iuMloKD/IYYkyMMNhr7Kqg=="],
+
+    "drizzle-orm": ["drizzle-orm@0.45.4", "", { "peerDependencies": { "@aws-sdk/client-rds-data": ">=3", "@cloudflare/workers-types": ">=4", "@electric-sql/pglite": ">=0.2.0", "@libsql/client": ">=0.10.0", "@libsql/client-wasm": ">=0.10.0", "@neondatabase/serverless": ">=0.10.0", "@netlify/db": ">=0.4.0", "@op-engineering/op-sqlite": ">=2", "@opentelemetry/api": "^1.4.1", "@planetscale/database": ">=1.13", "@prisma/client": "*", "@tidbcloud/serverless": "*", "@types/better-sqlite3": "*", "@types/pg": "*", "@types/sql.js": "*", "@upstash/redis": ">=1.34.7", "@vercel/postgres": ">=0.8.0", "@xata.io/client": "*", "better-sqlite3": ">=7", "bun-types": "*", "expo-sqlite": ">=14.0.0", "gel": ">=2", "knex": "*", "kysely": "*", "mysql2": ">=2", "pg": ">=8", "postgres": ">=3", "prisma": "*", "sql.js": ">=1", "sqlite3": ">=5" }, "optionalPeers": ["@aws-sdk/client-rds-data", "@cloudflare/workers-types", "@electric-sql/pglite", "@libsql/client", "@libsql/client-wasm", "@neondatabase/serverless", "@netlify/db", "@op-engineering/op-sqlite", "@opentelemetry/api", "@planetscale/database", "@prisma/client", "@tidbcloud/serverless", "@types/better-sqlite3", "@types/pg", "@types/sql.js", "@upstash/redis", "@vercel/postgres", "@xata.io/client", "better-sqlite3", "bun-types", "expo-sqlite", "gel", "knex", "kysely", "mysql2", "pg", "postgres", "prisma", "sql.js", "sqlite3"] }, "sha512-NiM1YZpJ2UxyeE67DpDDZ+Tsw4YLX3trSlkNT7Tm9eKoUNb1LvaAaQzXgYQsWs+AQ9TUmmwMmBOCXuqqxUWKKQ=="],
+
+    "dunder-proto": ["dunder-proto@1.0.1", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.1", "es-errors": "^1.3.0", "gopd": "^1.2.0" } }, "sha512-KIN/nDJBQRcXw0MLVhZE9iQHmG68qAVIBg9CqmUYjmQIhgij9U5MFvrqkUL5FbtyyzZuOeOt0zdeRe4UY7ct+A=="],
+
+    "es-set-tostringtag": ["es-set-tostringtag@2.1.0", "", { "dependencies": { "es-errors": "^1.3.0", "get-intrinsic": "^1.2.6", "has-tostringtag": "^1.0.2", "hasown": "^2.0.2" } }, "sha512-j6vWzfrGVfyXxge+O0x5sh6cvxAog0a/4Rdd2K36zCMV5eJ+/+tOAngRO8cODMNWbVRdVlmGZQL2YS3yR8bIUA=="],
+
+    "esbuild": ["esbuild@0.25.12", "", { "optionalDependencies": { "@esbuild/aix-ppc64": "0.25.12", "@esbuild/android-arm": "0.25.12", "@esbuild/android-arm64": "0.25.12", "@esbuild/android-x64": "0.25.12", "@esbuild/darwin-arm64": "0.25.12", "@esbuild/darwin-x64": "0.25.12", "@esbuild/freebsd-arm64": "0.25.12", "@esbuild/freebsd-x64": "0.25.12", "@esbuild/linux-arm": "0.25.12", "@esbuild/linux-arm64": "0.25.12", "@esbuild/linux-ia32": "0.25.12", "@esbuild/linux-loong64": "0.25.12", "@esbuild/linux-mips64el": "0.25.12", "@esbuild/linux-ppc64": "0.25.12", "@esbuild/linux-riscv64": "0.25.12", "@esbuild/linux-s390x": "0.25.12", "@esbuild/linux-x64": "0.25.12", "@esbuild/netbsd-arm64": "0.25.12", "@esbuild/netbsd-x64": "0.25.12", "@esbuild/openbsd-arm64": "0.25.12", "@esbuild/openbsd-x64": "0.25.12", "@esbuild/openharmony-arm64": "0.25.12", "@esbuild/sunos-x64": "0.25.12", "@esbuild/win32-arm64": "0.25.12", "@esbuild/win32-ia32": "0.25.12", "@esbuild/win32-x64": "0.25.12" }, "hasInstallScript": true, "bin": { "esbuild": "bin/esbuild" } }, "sha512-bbPBYYrtZbkt6Os6FiTLCTFxvq4tt3JKall1vRwshA3fdVztsLAatFaZobhkBC8/BrPetoa0oksYoKXoG4ryJg=="],
+
+    "escalade": ["escalade@3.2.0", "", {}, "sha512-WUj2qlxaQtO4g6Pq5c29GTcWGDyd8itL8zTlipgECz3JesAiiOKotd8JU6otB3PACgG6xkJUyVhboMS+bje/jA=="],
+
+    "get-proto": ["get-proto@1.0.1", "", { "dependencies": { "dunder-proto": "^1.0.1", "es-object-atoms": "^1.0.0" } }, "sha512-sTSfBjoXBp89JvIKIefqw7U2CCebsc74kiY6awiGogKtoSGbgjYE/G/+l9sF3MWFPNc9IcoOC4ODfKHfxFmp0g=="],
+
+    "get-tsconfig": ["get-tsconfig@4.14.3", "", { "dependencies": { "resolve-pkg-maps": "^1.0.0" } }, "sha512-++QEw4DIY7WGoukz+/+A/8dGYPT9l9yIadnmSgZ8Rjr3YVSVDipQSO9CdnJo9ePqFqUUqh+wk9uIaoiAwsiPkA=="],
+
+    "glob-parent": ["glob-parent@6.0.2", "", { "dependencies": { "is-glob": "^4.0.3" } }, "sha512-XxwI8EOhVQgWp6iDL+3b0r86f4d6AX6zSU55HfB4ydCEuXLXc5FcYeOu+nnGftS4TEju/11rt4KJPTMgbfmv4A=="],
+
+    "httpxy": ["httpxy@0.5.5", "", {}, "sha512-uDjmnPyp1q4Sgzf3w+J/Fc6UqcCEj0x4Wjp7OqK5dGhNeDgpyrAmnS6ey8QWrX3SWDon2DMKf9sBa5X9+CVyMA=="],
+
+    "iceberg-js": ["iceberg-js@0.8.1", "", {}, "sha512-1dhVQZXhcHje7798IVM+xoo/1ZdVfzOMIc8/rgVSijRK38EDqOJoGula9N/8ZI5RD8QTxNQtK/Gozpr+qUqRRA=="],
+
+    "iconv-lite": ["iconv-lite@0.6.3", "", { "dependencies": { "safer-buffer": ">= 2.1.2 < 3.0.0" } }, "sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw=="],
+
+    "postcss": ["postcss@8.5.24", "", { "dependencies": { "nanoid": "^3.3.16", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-8RyVklq0owXUTa4xlpzu4l9AaVKIdQvAcOHZWaMh98HgySsUtxRVf/chRe3dsSLqb6i40BzGRzEUddRaI+9TSw=="],
+
+    "postgres": ["postgres@4.1.0", "", {}, "sha512-s+0WH67YAyLdBQUb6XczbziBhY+C9uiQsg9S8R5RHdZhk6sdyK6202E+T2tXpiInSEEjDLRSJ3OpYBe3PN6MsQ=="],
+
+    "prelude-ls": ["prelude-ls@1.2.1", "", {}, "sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g=="],
+
+    "resolve-from": ["resolve-from@4.0.0", "", {}, "sha512-pb/MYmXstAkysRFx8piNI1tGFNQIFA3vkE3Gq4EuA1dF6gHp/+vgZqsCGJapvy8N3Q+4o7FwvquPJcnZ7RYy4g=="],
+
+    "resolve-pkg-maps": ["resolve-pkg-maps@1.0.0", "", {}, "sha512-seS2Tj26TBVOC2NIc2rOe2y2ZO7efxITtLZcGSOnHHNOQ7CkiUBfw0Iw2ck6xkIhPwLhKNLS8BO+hEpngQlqzw=="],
+
+    "rolldown": ["rolldown@1.2.1", "", { "dependencies": { "@oxc-project/types": "=0.142.0", "@rolldown/pluginutils": "^1.0.0" }, "optionalDependencies": { "@rolldown/binding-android-arm64": "1.2.1", "@rolldown/binding-darwin-arm64": "1.2.1", "@rolldown/binding-darwin-x64": "1.2.1", "@rolldown/binding-freebsd-x64": "1.2.1", "@rolldown/binding-linux-arm-gnueabihf": "1.2.1", "@rolldown/binding-linux-arm64-gnu": "1.2.1", "@rolldown/binding-linux-arm64-musl": "1.2.1", "@rolldown/binding-linux-ppc64-gnu": "1.2.1", "@rolldown/binding-linux-s390x-gnu": "1.2.1", "@rolldown/binding-linux-x64-gnu": "1.2.1", "@rolldown/binding-linux-x64-musl": "1.2.1", "@rolldown/binding-openharmony-arm64": "1.2.1", "@rolldown/binding-wasm32-wasi": "1.2.1", "@rolldown/binding-win32-arm64-msvc": "1.2.1", "@rolldown/binding-win32-x64-msvc": "1.2.1" }, "bin": { "rolldown": "./bin/cli.mjs" } }, "sha512-4FKJhg8d3OiyQOA6Q1Q0hoFFpW9/OoX+VsHzpECsdsIZoOArrAK90gl59YK/Z+gnDel45bgJZK03ozH/9bCqEw=="],
+
+    "source-map-js": ["source-map-js@1.2.1", "", {}, "sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA=="],
+
+    "source-map-support": ["source-map-support@0.5.21", "", { "dependencies": { "buffer-from": "^1.0.0", "source-map": "^0.6.0" } }, "sha512-uBHU3L3czsIyYXKX88fdrGovxdSCoTGDRZ6SYXtSRxLZUzHg5P/66Ht6uoUlHu9EZod+inXhKo3qQgwXUT/y1w=="],
+
+    "srvx": ["srvx@0.11.22", "", { "bin": { "srvx": "bin/srvx.mjs" } }, "sha512-LqZxxBDMKuMAZzFzJnDCkFOrs9MZQZr0LvHiO/SuSZVdQaXD7xQ5UWTUxheJrQPve1qk9MG2B/yttUvJxw8egQ=="],
+
+    "tslib": ["tslib@2.8.1", "", {}, "sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w=="],
+
+    "tsx": ["tsx@4.23.15", "", { "dependencies": { "esbuild": "~0.28.0" }, "optionalDependencies": { "fsevents": "~2.3.3" }, "bin": { "tsx": "dist/cli.mjs" } }, "sha512-Yiex1Ovn8z2xPpOWckIiysV1SSyRMY9BkLF++q0yKiDxCqRhosKfMg3janKkiLBwZ5c/YryloKwGZcrEmtwxKw=="],
+
+    "tw-animate-css": ["tw-animate-css@1.4.0", "", {}, "sha512-7bziOlRqH0hJx80h/3mbicLW7o8qLsH5+RaLR2t+OHM3D0JlWGODQKQ4cxbK7WlvmUxpcj6Kgu6EKqjrGFe3QQ=="],
+
+    "@babel/traverse/@babel/types": ["@babel/types@7.29.7", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-4zBIxpPzowiZpusoFkyGVwakdRJUyuH5PxQ/PrqghfdFWWasvnCdPfQXHrenDai+gyLARulZjZowCOj6fjT4pA=="],
+
+    "@esbuild-kit/core-utils/esbuild": ["esbuild@0.18.20", "", { "optionalDependencies": { "@esbuild/android-arm": "0.18.20", "@esbuild/android-arm64": "0.18.20", "@esbuild/android-x64": "0.18.20", "@esbuild/darwin-arm64": "0.18.20", "@esbuild/darwin-x64": "0.18.20", "@esbuild/freebsd-arm64": "0.18.20", "@esbuild/freebsd-x64": "0.18.20", "@esbuild/linux-arm": "0.18.20", "@esbuild/linux-arm64": "0.18.20", "@esbuild/linux-ia32": "0.18.20", "@esbuild/linux-loong64": "0.18.20", "@esbuild/linux-mips64el": "0.18.20", "@esbuild/linux-ppc64": "0.18.20", "@esbuild/linux-riscv64": "0.18.20", "@esbuild/linux-s390x": "0.18.20", "@esbuild/linux-x64": "0.18.20", "@esbuild/netbsd-x64": "0.18.20", "@esbuild/openbsd-x64": "0.18.20", "@esbuild/sunos-x64": "0.18.20", "@esbuild/win32-arm64": "0.18.20", "@esbuild/win32-ia32": "0.18.20", "@esbuild/win32-x64": "0.18.20" }, "hasInstallScript": true, "bin": { "esbuild": "bin/esbuild" } }, "sha512-ceqxoedUrcayh7Y7ZX6NdbbDzGROiyVBgC4PriJThBKSVPWnnFHZAkfI1lJT8QFkOwH4qOS2SJkS4wvpGl8BpA=="],
+
+    "@eslint-community/eslint-utils/eslint-visitor-keys": ["eslint-visitor-keys@3.4.3", "", {}, "sha512-wpc+LXeiyiisxPlEkUzU6svyS1frIO3Mgxj1fdy7Pm8Ygzguax2N3Fa/D/ag1WqbOprdI+uY6wMUl8/a2G+iag=="],
+
+    "rolldown/@rolldown/pluginutils": ["@rolldown/pluginutils@1.0.1", "", {}, "sha512-2j9bGt5Jh8hj+vPtgzPtl72j0yRxHAyumoo6TNfAjsLB04UtpSvPbPcDcBMxz7n+9CYB0c1GxQFxYRg2jimqGw=="],
+
+    "tsx/esbuild": ["esbuild@0.28.2", "", { "optionalDependencies": { "@esbuild/aix-ppc64": "0.28.2", "@esbuild/android-arm": "0.28.2", "@esbuild/android-arm64": "0.28.2", "@esbuild/android-x64": "0.28.2", "@esbuild/darwin-arm64": "0.28.2", "@esbuild/darwin-x64": "0.28.2", "@esbuild/freebsd-arm64": "0.28.2", "@esbuild/freebsd-x64": "0.28.2", "@esbuild/linux-arm": "0.28.2", "@esbuild/linux-arm64": "0.28.2", "@esbuild/linux-ia32": "0.28.2", "@esbuild/linux-loong64": "0.28.2", "@esbuild/linux-mips64el": "0.28.2", "@esbuild/linux-ppc64": "0.28.2", "@esbuild/linux-riscv64": "0.28.2", "@esbuild/linux-s390x": "0.28.2", "@esbuild/linux-x64": "0.28.2", "@esbuild/netbsd-arm64": "0.28.2", "@esbuild/netbsd-x64": "0.28.2", "@esbuild/openbsd-arm64": "0.28.2", "@esbuild/openbsd-x64": "0.28.2", "@esbuild/openharmony-arm64": "0.28.2", "@esbuild/sunos-x64": "0.28.2", "@esbuild/win32-arm64": "0.28.2", "@esbuild/win32-ia32": "0.28.2", "@esbuild/win32-x64": "0.28.2" }, "hasInstallScript": true, "bin": { "esbuild": "bin/esbuild" } }, "sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA=="],
+
+    "vitest/picomatch": ["picomatch@4.0.7", "", {}, "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/android-arm": ["@esbuild/android-arm@0.18.20", "", { "os": "android", "cpu": "arm" }, "sha512-fyi7TDI/ijKKNZTUJAQqiG5T7YjJXgnzkURqmGj13C6dCqckZBLdl4h7bkhHt/t0WP+zO9/zwroDvANaOqO5Sw=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/android-arm64": ["@esbuild/android-arm64@0.18.20", "", { "os": "android", "cpu": "arm64" }, "sha512-Nz4rJcchGDtENV0eMKUNa6L12zz2zBDXuhj/Vjh18zGqB44Bi7MBMSXjgunJgjRhCmKOjnPuZp4Mb6OKqtMHLQ=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/android-x64": ["@esbuild/android-x64@0.18.20", "", { "os": "android", "cpu": "x64" }, "sha512-8GDdlePJA8D6zlZYJV/jnrRAi6rOiNaCC/JclcXpB+KIuvfBN4owLtgzY2bsxnx666XjJx2kDPUmnTtR8qKQUg=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/darwin-arm64": ["@esbuild/darwin-arm64@0.18.20", "", { "os": "darwin", "cpu": "arm64" }, "sha512-bxRHW5kHU38zS2lPTPOyuyTm+S+eobPUnTNkdJEfAddYgEcll4xkT8DB9d2008DtTbl7uJag2HuE5NZAZgnNEA=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/darwin-x64": ["@esbuild/darwin-x64@0.18.20", "", { "os": "darwin", "cpu": "x64" }, "sha512-pc5gxlMDxzm513qPGbCbDukOdsGtKhfxD1zJKXjCCcU7ju50O7MeAZ8c4krSJcOIJGFR+qx21yMMVYwiQvyTyQ=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/freebsd-arm64": ["@esbuild/freebsd-arm64@0.18.20", "", { "os": "freebsd", "cpu": "arm64" }, "sha512-yqDQHy4QHevpMAaxhhIwYPMv1NECwOvIpGCZkECn8w2WFHXjEwrBn3CeNIYsibZ/iZEUemj++M26W3cNR5h+Tw=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/freebsd-x64": ["@esbuild/freebsd-x64@0.18.20", "", { "os": "freebsd", "cpu": "x64" }, "sha512-tgWRPPuQsd3RmBZwarGVHZQvtzfEBOreNuxEMKFcd5DaDn2PbBxfwLcj4+aenoh7ctXcbXmOQIn8HI6mCSw5MQ=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/linux-arm": ["@esbuild/linux-arm@0.18.20", "", { "os": "linux", "cpu": "arm" }, "sha512-/5bHkMWnq1EgKr1V+Ybz3s1hWXok7mDFUMQ4cG10AfW3wL02PSZi5kFpYKrptDsgb2WAJIvRcDm+qIvXf/apvg=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/linux-arm64": ["@esbuild/linux-arm64@0.18.20", "", { "os": "linux", "cpu": "arm64" }, "sha512-2YbscF+UL7SQAVIpnWvYwM+3LskyDmPhe31pE7/aoTMFKKzIc9lLbyGUpmmb8a8AixOL61sQ/mFh3jEjHYFvdA=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/linux-ia32": ["@esbuild/linux-ia32@0.18.20", "", { "os": "linux", "cpu": "ia32" }, "sha512-P4etWwq6IsReT0E1KHU40bOnzMHoH73aXp96Fs8TIT6z9Hu8G6+0SHSw9i2isWrD2nbx2qo5yUqACgdfVGx7TA=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/linux-loong64": ["@esbuild/linux-loong64@0.18.20", "", { "os": "linux", "cpu": "none" }, "sha512-nXW8nqBTrOpDLPgPY9uV+/1DjxoQ7DoB2N8eocyq8I9XuqJ7BiAMDMf9n1xZM9TgW0J8zrquIb/A7s3BJv7rjg=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/linux-mips64el": ["@esbuild/linux-mips64el@0.18.20", "", { "os": "linux", "cpu": "none" }, "sha512-d5NeaXZcHp8PzYy5VnXV3VSd2D328Zb+9dEq5HE6bw6+N86JVPExrA6O68OPwobntbNJ0pzCpUFZTo3w0GyetQ=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/linux-ppc64": ["@esbuild/linux-ppc64@0.18.20", "", { "os": "linux", "cpu": "ppc64" }, "sha512-WHPyeScRNcmANnLQkq6AfyXRFr5D6N2sKgkFo2FqguP44Nw2eyDlbTdZwd9GYk98DZG9QItIiTlFLHJHjxP3FA=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/linux-riscv64": ["@esbuild/linux-riscv64@0.18.20", "", { "os": "linux", "cpu": "none" }, "sha512-WSxo6h5ecI5XH34KC7w5veNnKkju3zBRLEQNY7mv5mtBmrP/MjNBCAlsM2u5hDBlS3NGcTQpoBvRzqBcRtpq1A=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/linux-s390x": ["@esbuild/linux-s390x@0.18.20", "", { "os": "linux", "cpu": "s390x" }, "sha512-+8231GMs3mAEth6Ja1iK0a1sQ3ohfcpzpRLH8uuc5/KVDFneH6jtAJLFGafpzpMRO6DzJ6AvXKze9LfFMrIHVQ=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/linux-x64": ["@esbuild/linux-x64@0.18.20", "", { "os": "linux", "cpu": "x64" }, "sha512-UYqiqemphJcNsFEskc73jQ7B9jgwjWrSayxawS6UVFZGWrAAtkzjxSqnoclCXxWtfwLdzU+vTpcNYhpn43uP1w=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/netbsd-x64": ["@esbuild/netbsd-x64@0.18.20", "", { "os": "none", "cpu": "x64" }, "sha512-iO1c++VP6xUBUmltHZoMtCUdPlnPGdBom6IrO4gyKPFFVBKioIImVooR5I83nTew5UOYrk3gIJhbZh8X44y06A=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/openbsd-x64": ["@esbuild/openbsd-x64@0.18.20", "", { "os": "openbsd", "cpu": "x64" }, "sha512-e5e4YSsuQfX4cxcygw/UCPIEP6wbIL+se3sxPdCiMbFLBWu0eiZOJ7WoD+ptCLrmjZBK1Wk7I6D/I3NglUGOxg=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/sunos-x64": ["@esbuild/sunos-x64@0.18.20", "", { "os": "sunos", "cpu": "x64" }, "sha512-kDbFRFp0YpTQVVrqUd5FTYmWo45zGaXe0X8E1G/LKFC0v8x0vWrhOWSLITcCn63lmZIxfOMXtCfti/RxN/0wnQ=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/win32-arm64": ["@esbuild/win32-arm64@0.18.20", "", { "os": "win32", "cpu": "arm64" }, "sha512-ddYFR6ItYgoaq4v4JmQQaAI5s7npztfV4Ag6NrhiaW0RrnOXqBkgwZLofVTlq1daVTQNhtI5oieTvkRPfZrePg=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.18.20", "", { "os": "win32", "cpu": "ia32" }, "sha512-Wv7QBi3ID/rROT08SABTS7eV4hX26sVduqDOTe1MvGMjNd3EjOz4b7zeexIR62GTIEKrfJXKL9LFxTYgkyeu7g=="],
+
+    "@esbuild-kit/core-utils/esbuild/@esbuild/win32-x64": ["@esbuild/win32-x64@0.18.20", "", { "os": "win32", "cpu": "x64" }, "sha512-kTdfRcSiDfQca/y9QIkng02avJ+NCaQvrMejlsB3RRv5sE9rRoeBPISaZpKxHELzRxZyLvNts1P27W3wV+8geQ=="],
+
+    "@tailwindcss/node/lightningcss/lightningcss-android-arm64": ["lightningcss-android-arm64@1.32.0", "", { "os": "android", "cpu": "arm64" }, "sha512-YK7/ClTt4kAK0vo6w3X+Pnm0D2cf2vPHbhOXdoNti1Ga0al1P4TBZhwjATvjNwLEBCnKvjJc2jQgHXH0NEwlAg=="],
+
+    "@tailwindcss/node/lightningcss/lightningcss-win32-x64-msvc": ["lightningcss-win32-x64-msvc@1.32.0", "", { "os": "win32", "cpu": "x64" }, "sha512-Amq9B/SoZYdDi1kFrojnoqPLxYhQ4Wo5XiL8EVJrVsB8ARoC1PWW6VGtT0WKCemjy8aC+louJnjS7U18x3b06Q=="],
+
+    "@tailwindcss/oxide-wasm32-wasi/@napi-rs/wasm-runtime/@emnapi/core": ["@emnapi/core@2.0.0-alpha.3", "", { "dependencies": { "@emnapi/wasi-threads": "2.0.1", "tslib": "^2.4.0" } }, "sha512-AZypUeJ/yByuxyS7BlSNRDOMLMlROYtjYdIAuBmJssVz1UJDSeYxLrdizhXCFYhedC5bqd/ASy8EuNXbVVXp9g=="],
+
+    "@tailwindcss/oxide-wasm32-wasi/@napi-rs/wasm-runtime/@emnapi/runtime": ["@emnapi/runtime@2.0.0-alpha.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-hFPAhMUjJD9BSyCANEISPOogeXC9Zo9ZQl7L6vKnaVsMkCtzznaW/naYypeyl0Gv5rYfWYsZbpixTMpjDJzQeA=="],
+
+    "@typescript-eslint/typescript-estree/minimatch/brace-expansion": ["brace-expansion@5.0.8", "", { "dependencies": { "balanced-match": "^4.0.2" } }, "sha512-JZyDyq3D4AUifKTPOB7DELf6XsB3WdPuNxCtob1vFXPsSXhdAiHBWJ/tJ8HAc9aH84BK+5JFZLNkJKx3G9kzQg=="],
+
+    "tsx/esbuild/@esbuild/aix-ppc64": ["@esbuild/aix-ppc64@0.28.2", "", { "os": "aix", "cpu": "ppc64" }, "sha512-XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ=="],
+
+    "tsx/esbuild/@esbuild/android-arm": ["@esbuild/android-arm@0.28.2", "", { "os": "android", "cpu": "arm" }, "sha512-kXXoiPVVGQcnIYGOeaovwOURpniDBpSq4A03qkQ+BMQqtGG6HYap3xne9C1O1yo4TR3qxlCX5IqqmX6fFo2Lqg=="],
+
+    "tsx/esbuild/@esbuild/android-arm64": ["@esbuild/android-arm64@0.28.2", "", { "os": "android", "cpu": "arm64" }, "sha512-5YfKeeI8qWfBZIX+u2xZC3Zlb3Os/gLS2sbEKM+I4ZOcsWmHS2WLysCcQZDAFRslDUU5Oiq44gf6PYN1vGwG5A=="],
+
+    "tsx/esbuild/@esbuild/android-x64": ["@esbuild/android-x64@0.28.2", "", { "os": "android", "cpu": "x64" }, "sha512-O387ite7SzUyCcy3JQX4P4bLtEA7bLLkx+esve5JHnyYfNTxcVpXZo9jhdB0lTKN44gztELTdU7nS8Nr16Fs1Q=="],
+
+    "tsx/esbuild/@esbuild/darwin-arm64": ["@esbuild/darwin-arm64@0.28.2", "", { "os": "darwin", "cpu": "arm64" }, "sha512-n4KqkOQrraxHJcgjM1RvwbigfQKIKJVpM7xp+KsxiyUSrRdIXnt73VhrPAx0fV44hgfmIVKjxMN9J1t5jySVkw=="],
+
+    "tsx/esbuild/@esbuild/darwin-x64": ["@esbuild/darwin-x64@0.28.2", "", { "os": "darwin", "cpu": "x64" }, "sha512-uq6suIWYP37qzGddBKPw5QEQPi6HiLGsO7UmkpfyaYNQ3D+rN6w6WfwH+nuqcGXWvawGwxOEroO4YGnFh95azw=="],
+
+    "tsx/esbuild/@esbuild/freebsd-arm64": ["@esbuild/freebsd-arm64@0.28.2", "", { "os": "freebsd", "cpu": "arm64" }, "sha512-n+I0BTSRIoy+d6RPKnEVwql5UwBJolytvY4mAOIEJorKlqgPII8ix6slVVrfZ5Tnj7glIZvloylbB/EJPMWEXw=="],
+
+    "tsx/esbuild/@esbuild/freebsd-x64": ["@esbuild/freebsd-x64@0.28.2", "", { "os": "freebsd", "cpu": "x64" }, "sha512-78XJTJkvPs0kz2w61301PJjXl4g7q3JqiYMZ/M/yVI73EHBrCRTgkhu9oqG7vPqq+a/yadEW8aD+agKlk5xrmg=="],
+
+    "tsx/esbuild/@esbuild/linux-arm": ["@esbuild/linux-arm@0.28.2", "", { "os": "linux", "cpu": "arm" }, "sha512-XlDnu2q5yoqems+xay6wSAcg9DDD7K9RLKZEBOMZm3ckNpJBvOX20tSfby8KfrrhINDyv9V2YVZKY/SpoGJI8w=="],
+
+    "tsx/esbuild/@esbuild/linux-arm64": ["@esbuild/linux-arm64@0.28.2", "", { "os": "linux", "cpu": "arm64" }, "sha512-pW4AC0P3it8c7do9MVM4p51FzHzdM/TZrerurgRcHJ2WTa1VQ1CIq18xncfpBJw4ojkiZZrKW2yIBWBP92j6Ug=="],
+
+    "tsx/esbuild/@esbuild/linux-ia32": ["@esbuild/linux-ia32@0.28.2", "", { "os": "linux", "cpu": "ia32" }, "sha512-CYbnj78HsIeA+DhgUKgFCfvNsTHFhMMrinUrMZpDXJXKN8T3XViTZ/+wtHeVxEWY8ewSzTFN+nRmSwO2tZaLUQ=="],
+
+    "tsx/esbuild/@esbuild/linux-loong64": ["@esbuild/linux-loong64@0.28.2", "", { "os": "linux", "cpu": "none" }, "sha512-buwkd8nsph4R+ajRvw0qM5Hja/TXQow3ptzWO2EbG/cqcIkHloRrdlBtQlshyYGTNFvfkfJ5tpPLVkY4DtsPfQ=="],
+
+    "tsx/esbuild/@esbuild/linux-mips64el": ["@esbuild/linux-mips64el@0.28.2", "", { "os": "linux", "cpu": "none" }, "sha512-ZVykbDyk7519VwiNb9Lcj9m8XM6v5V9uKPvrEMkkEedVewf+0itkhahp4HDpgERXhwLRpWFypsGbG/J8s0QjJA=="],
+
+    "tsx/esbuild/@esbuild/linux-ppc64": ["@esbuild/linux-ppc64@0.28.2", "", { "os": "linux", "cpu": "ppc64" }, "sha512-CAXl+Dtd9UUuJd8pKKdwh6MLm3MUMiqMPmhZ3tTSXPqfyQ3vDl6R5hZdZ/kYojK4ofXtdfSv1tFq8XzWx3heNQ=="],
+
+    "tsx/esbuild/@esbuild/linux-riscv64": ["@esbuild/linux-riscv64@0.28.2", "", { "os": "linux", "cpu": "none" }, "sha512-GeXCej4IQtU1B+QlDV8W/RRvbzI3O/Stss+/bCXv4lZls5WGRtu2a+3JkA3i4qIUlMXpcHebWpF8AkJhATowuA=="],
+
+    "tsx/esbuild/@esbuild/linux-s390x": ["@esbuild/linux-s390x@0.28.2", "", { "os": "linux", "cpu": "s390x" }, "sha512-3H1weTYZPxt/WOhByszQZybS9w5lKzUn1FDMsgEChbHWQwHYQQRfBxgCcZvPhjHfKyJjIievvMmEUawJrdY9Dg=="],
+
+    "tsx/esbuild/@esbuild/linux-x64": ["@esbuild/linux-x64@0.28.2", "", { "os": "linux", "cpu": "x64" }, "sha512-4xTZr1FUmSoQW4XIWmit3tzQrUTZM+N3P0XV8xROKYF50XfI7xeO90+1bZvNwxIufQ9hDQVRJH5YhgPVF8A/HQ=="],
+
+    "tsx/esbuild/@esbuild/netbsd-arm64": ["@esbuild/netbsd-arm64@0.28.2", "", { "os": "none", "cpu": "arm64" }, "sha512-sSATRjPeDBg3pdgHoQfoYBob11Kk1FGa9lui5RIHZCoCkJa9QKlvl3/vKz2usCmYYjs7ymJR/2Nnsqe+Hjt5nw=="],
+
+    "tsx/esbuild/@esbuild/netbsd-x64": ["@esbuild/netbsd-x64@0.28.2", "", { "os": "none", "cpu": "x64" }, "sha512-lqnzCV+mM0gIADaKihiCg6ifgfU2L3h5E33rNQBN1Y4MaVGnzryzmvvf7UHxprpQdE8hpqLolJ9Rl+SkIRDpyw=="],
+
+    "tsx/esbuild/@esbuild/openbsd-arm64": ["@esbuild/openbsd-arm64@0.28.2", "", { "os": "openbsd", "cpu": "arm64" }, "sha512-AL2qJILH7lNjrDmCQDvdxMfAUIv8KMNZOvrwAQ8i8//ntL9FflhOyMJ8OZSMBb8/AWXe3/5v5S20y3zCoZWKoQ=="],
+
+    "tsx/esbuild/@esbuild/openbsd-x64": ["@esbuild/openbsd-x64@0.28.2", "", { "os": "openbsd", "cpu": "x64" }, "sha512-QtiuPytchRyC4rwUKhexJdQKvDuZ6hWloi3igqPQNUJCS1/v9EiO3UTOXR6A3FoMo4fnAKbWJdqaIwhOzh8qEw=="],
+
+    "tsx/esbuild/@esbuild/openharmony-arm64": ["@esbuild/openharmony-arm64@0.28.2", "", { "os": "none", "cpu": "arm64" }, "sha512-WkhYDmpTjLvGlScA1rwjRUmhl4k8oXR3cIbtqWmELgU/dFeHHlEllxDvdWcNJV9rbzCexB5vz8gtNewWLgCT7Q=="],
+
+    "tsx/esbuild/@esbuild/sunos-x64": ["@esbuild/sunos-x64@0.28.2", "", { "os": "sunos", "cpu": "x64" }, "sha512-GPMSkTOtMnv2U2F8gxe4Io6qmVs+YKyp832Etqqxr0hFngmXQ3rzwytelm3GIn7T4VviRUlf3sOgBOiTdvaf7g=="],
+
+    "tsx/esbuild/@esbuild/win32-arm64": ["@esbuild/win32-arm64@0.28.2", "", { "os": "win32", "cpu": "arm64" }, "sha512-PIhhEkE9uPBleRBrQEJpUn7MBnibZzbGzYWPmY3x+YoVg/95zbjB4CxPPOQ8l5tYYM4mMaCthF8/1DIfBQQyWQ=="],
+
+    "tsx/esbuild/@esbuild/win32-ia32": ["@esbuild/win32-ia32@0.28.2", "", { "os": "win32", "cpu": "ia32" }, "sha512-YmJbfTlvU7Sdn9BB+4PRES4oB6pxgS37MAONj+hBr/cpXS1aBPKXxNnDbu+QCWPj0o9dgyxeq79g6c5P8KeuYA=="],
+
+    "tsx/esbuild/@esbuild/win32-x64": ["@esbuild/win32-x64@0.28.2", "", { "os": "win32", "cpu": "x64" }, "sha512-5ebpxr3nWMzrL/rnUI755Jkuee0bHL/Gq0WTF9lvcpv73wAp5eu8MfBUgWK9bhWvZjj7yX8etf/8tI8Ney695g=="],
+
+    "@tailwindcss/oxide-wasm32-wasi/@napi-rs/wasm-runtime/@emnapi/core/@emnapi/wasi-threads": ["@emnapi/wasi-threads@2.0.1", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-9DsSk+o5NBX0CCJT8s0EROGSGxjR/tKu6aBTaVyq+SjAEQH4XcdcRxPBRzsBLizTTJ49MJjF+jgu3qnO9GLQcQ=="],
+
+    "@typescript-eslint/typescript-estree/minimatch/brace-expansion/balanced-match": ["balanced-match@4.0.4", "", {}, "sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA=="],
+  }
+
+Modified
+package.json
+
+    "@radix-ui/react-toggle-group": "^1.1.11",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@supabase/supabase-js": "^2.119.0",
+    "@tailwindcss/vite": "^4.2.1",
+    "@tanstack/react-query": "^5.101.1",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "drizzle-kit": "0.x",
+    "drizzle-orm": "0.x",
+    "eslint": "^9.32.0",
+    "eslint-config-prettier": "^10.1.1",
+    "jsdom": "^20.0.3",
+    "nitro": "3.0.260603-beta",
+    "postgres": "^4.1.0",
+    "prettier": "^3.7.3",
+    "typescript": "^5.8.3",
+
+Modified
+routeTree.gen.ts
+
+import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as CadastroRouteImport } from './routes/cadastro'
+import { Route as EsqueciSenhaRouteImport } from './routes/esqueci-senha'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as AuthenticatedConfiguracoesRouteImport } from './routes/_authenticated/configuracoes'
+import { Route as AuthenticatedDescobrirRouteImport } from './routes/_authenticated/descobrir'
+import { Route as AuthenticatedMatchesRouteImport } from './routes/_authenticated/matches'
+import { Route as AuthenticatedMensagensRouteImport } from './routes/_authenticated/mensagens'
+import { Route as AuthenticatedPerfilRouteImport } from './routes/_authenticated/perfil'
+
+const IndexRoute = IndexRouteImport.update({
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CadastroRoute = CadastroRouteImport.update({
+  id: '/cadastro',
+  path: '/cadastro',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EsqueciSenhaRoute = EsqueciSenhaRouteImport.update({
+  id: '/esqueci-senha',
+  path: '/esqueci-senha',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedConfiguracoesRoute =
+  AuthenticatedConfiguracoesRouteImport.update({
+    id: '/configuracoes',
+    path: '/configuracoes',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedDescobrirRoute = AuthenticatedDescobrirRouteImport.update({
+  id: '/descobrir',
+  path: '/descobrir',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedMatchesRoute = AuthenticatedMatchesRouteImport.update({
+  id: '/matches',
+  path: '/matches',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedMensagensRoute = AuthenticatedMensagensRouteImport.update({
+  id: '/mensagens',
+  path: '/mensagens',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedPerfilRoute = AuthenticatedPerfilRouteImport.update({
+  id: '/perfil',
+  path: '/perfil',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+
+export interface FileRoutesByFullPath {
+  '/': typeof IndexRoute
+  '/cadastro': typeof CadastroRoute
+  '/esqueci-senha': typeof EsqueciSenhaRoute
+  '/login': typeof LoginRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/configuracoes': typeof AuthenticatedConfiguracoesRoute
+  '/descobrir': typeof AuthenticatedDescobrirRoute
+  '/matches': typeof AuthenticatedMatchesRoute
+  '/mensagens': typeof AuthenticatedMensagensRoute
+  '/perfil': typeof AuthenticatedPerfilRoute
+}
+export interface FileRoutesByTo {
+  '/': typeof IndexRoute
+  '/cadastro': typeof CadastroRoute
+  '/esqueci-senha': typeof EsqueciSenhaRoute
+  '/login': typeof LoginRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/configuracoes': typeof AuthenticatedConfiguracoesRoute
+  '/descobrir': typeof AuthenticatedDescobrirRoute
+  '/matches': typeof AuthenticatedMatchesRoute
+  '/mensagens': typeof AuthenticatedMensagensRoute
+  '/perfil': typeof AuthenticatedPerfilRoute
+}
+export interface FileRoutesById {
+  __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/cadastro': typeof CadastroRoute
+  '/esqueci-senha': typeof EsqueciSenhaRoute
+  '/login': typeof LoginRoute
+  '/reset-password': typeof ResetPasswordRoute
+  '/_authenticated/configuracoes': typeof AuthenticatedConfiguracoesRoute
+  '/_authenticated/descobrir': typeof AuthenticatedDescobrirRoute
+  '/_authenticated/matches': typeof AuthenticatedMatchesRoute
+  '/_authenticated/mensagens': typeof AuthenticatedMensagensRoute
+  '/_authenticated/perfil': typeof AuthenticatedPerfilRoute
+}
+export interface FileRouteTypes {
+  fileRoutesByFullPath: FileRoutesByFullPath
+  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/cadastro'
+    | '/esqueci-senha'
+    | '/login'
+    | '/reset-password'
+    | '/configuracoes'
+    | '/descobrir'
+    | '/matches'
+    | '/mensagens'
+    | '/perfil'
+  fileRoutesByTo: FileRoutesByTo
+  to: '/'
+  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/cadastro'
+    | '/esqueci-senha'
+    | '/login'
+    | '/reset-password'
+    | '/configuracoes'
+    | '/descobrir'
+    | '/matches'
+    | '/mensagens'
+    | '/perfil'
+  id:
+    | '__root__'
+    | '/'
+    | '/_authenticated'
+    | '/cadastro'
+    | '/esqueci-senha'
+    | '/login'
+    | '/reset-password'
+    | '/_authenticated/configuracoes'
+    | '/_authenticated/descobrir'
+    | '/_authenticated/matches'
+    | '/_authenticated/mensagens'
+    | '/_authenticated/perfil'
+  fileRoutesById: FileRoutesById
+}
+export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  CadastroRoute: typeof CadastroRoute
+  EsqueciSenhaRoute: typeof EsqueciSenhaRoute
+  LoginRoute: typeof LoginRoute
+  ResetPasswordRoute: typeof ResetPasswordRoute
+}
+
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cadastro': {
+      id: '/cadastro'
+      path: '/cadastro'
+      fullPath: '/cadastro'
+      preLoaderRoute: typeof CadastroRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/esqueci-senha': {
+      id: '/esqueci-senha'
+      path: '/esqueci-senha'
+      fullPath: '/esqueci-senha'
+      preLoaderRoute: typeof EsqueciSenhaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/configuracoes': {
+      id: '/_authenticated/configuracoes'
+      path: '/configuracoes'
+      fullPath: '/configuracoes'
+      preLoaderRoute: typeof AuthenticatedConfiguracoesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/descobrir': {
+      id: '/_authenticated/descobrir'
+      path: '/descobrir'
+      fullPath: '/descobrir'
+      preLoaderRoute: typeof AuthenticatedDescobrirRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/matches': {
+      id: '/_authenticated/matches'
+      path: '/matches'
+      fullPath: '/matches'
+      preLoaderRoute: typeof AuthenticatedMatchesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/mensagens': {
+      id: '/_authenticated/mensagens'
+      path: '/mensagens'
+      fullPath: '/mensagens'
+      preLoaderRoute: typeof AuthenticatedMensagensRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/perfil': {
+      id: '/_authenticated/perfil'
+      path: '/perfil'
+      fullPath: '/perfil'
+      preLoaderRoute: typeof AuthenticatedPerfilRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+  }
+}
+
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedConfiguracoesRoute: typeof AuthenticatedConfiguracoesRoute
+  AuthenticatedDescobrirRoute: typeof AuthenticatedDescobrirRoute
+  AuthenticatedMatchesRoute: typeof AuthenticatedMatchesRoute
+  AuthenticatedMensagensRoute: typeof AuthenticatedMensagensRoute
+  AuthenticatedPerfilRoute: typeof AuthenticatedPerfilRoute
+}
+
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedConfiguracoesRoute: AuthenticatedConfiguracoesRoute,
+  AuthenticatedDescobrirRoute: AuthenticatedDescobrirRoute,
+  AuthenticatedMatchesRoute: AuthenticatedMatchesRoute,
+  AuthenticatedMensagensRoute: AuthenticatedMensagensRoute,
+  AuthenticatedPerfilRoute: AuthenticatedPerfilRoute,
+}
+
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
+const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  CadastroRoute: CadastroRoute,
+  EsqueciSenhaRoute: EsqueciSenhaRoute,
+  LoginRoute: LoginRoute,
+  ResetPasswordRoute: ResetPasswordRoute,
+}
+export const routeTree = rootRouteImport
+
+Modified
+__root.tsx
+
+import appCss from "../styles.css?url";
+import { reportLovableError } from "../lib/lovable-error-reporting";
+import { supabase } from "@/integrations/supabase/client";
+import { Toaster } from "@/components/ui/sonner";
+
+function NotFoundComponent() {
+      { charSet: "utf-8" },
+      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { title: "Lovable App" },
+      { name: "description", content: "Lovable Generated Project" },
+      { name: "author", content: "Lovable" },
+      { property: "og:title", content: "Lovable App" },
+      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "SEXYZ — Conexões de verdade" },
+      { name: "description", content: "SEXYZ: encontre pessoas, curta perfis, dê match e converse." },
+      { property: "og:title", content: "SEXYZ — Conexões de verdade" },
+      { property: "og:description", content: "SEXYZ: encontre pessoas, curta perfis, dê match e converse." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:site", content: "@Lovable" },
+    ],
+    links: [
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" },
+      {
+        rel: "stylesheet",
+function RootShell({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+    <html lang="pt-BR" className="dark">
+      <head>
+        <HeadContent />
+function RootComponent() {
+  const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
+      router.invalidate();
+      if (event !== "SIGNED_OUT") queryClient.invalidateQueries();
+    });
+    return () => data.subscription.unsubscribe();
+  }, [router, queryClient]);
+
+  return (
+      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+      <Outlet />
+      <Toaster richColors position="top-center" />
+    </QueryClientProvider>
+  );
+
+Modified
+src/routes/index.tsx
+
+import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
+import { Brand } from "@/components/AppShell";
+import hero from "@/assets/hero-SEXYZ.jpg";
+
+// The home route ships no og:image, so serve-time hosting can inject the
+// project's social preview (explicit og:image or latest screenshot).
+export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "SEXYZ — Conexões de verdade" },
+      { name: "description", content: "Descubra pessoas perto de você, curta perfis e converse quando der match." },
+      { property: "og:title", content: "SEXYZ — Conexões de verdade" },
+      { property: "og:description", content: "Descubra pessoas perto de você, curta perfis e converse quando der match." },
+    ],
+  }),
+  component: Index,
+});
+
+// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
+function Index() {
+  return (
+    <div
+      className="flex min-h-screen items-center justify-center"
+      style={{ backgroundColor: "#fcfbf8" }}
+    >
+      <img
+        data-lovable-blank-page-placeholder="REMOVE_THIS"
+        src="https://cdn.gpteng.co/blank-app-v1.svg"
+        alt="Your app will live here!"
+      />
+    <div className="min-h-screen">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5">
+        <Brand />
+        <div className="flex gap-2">
+          <Button asChild variant="ghost"><Link to="/login">Entrar</Link></Button>
+          <Button asChild><Link to="/cadastro">Criar conta</Link></Button>
+        </div>
+      </header>
+      <main className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-10 md:grid-cols-2">
+        <div>
+          <p className="mb-3 text-sm font-semibold uppercase tracking-widest text-accent">Sua próxima conexão</p>
+          <h1 className="text-5xl font-extrabold leading-[1.05] md:text-6xl">
+            Curta. Dê <span className="text-brand">match</span>. Converse.
+          </h1>
+          <p className="mt-5 max-w-md text-lg text-muted-foreground">
+            Perfis reais filtrados por idade, gênero e região. As conversas só abrem quando o interesse é mútuo.
+          </p>
+          <div className="mt-8 flex gap-3">
+            <Button asChild size="lg"><Link to="/cadastro">Começar agora</Link></Button>
+            <Button asChild size="lg" variant="outline"><Link to="/login">Já tenho conta</Link></Button>
+          </div>
+        </div>
+        <img src={hero} alt="Casal sorrindo ao entardecer" className="aspect-[5/6] w-full rounded-3xl object-cover shadow-2xl" />
+      </main>
+    </div>
+  );
+
+Modified
+start.ts
+
+
+import { renderErrorPage } from "./lib/error-page";
+import { attachSupabaseAuth } from "@/integrations/supabase/auth-attacher";
+
+const errorMiddleware = createMiddleware().server(async ({ next }) => {
+// project did not intentionally replace it.
+export const startInstance = createStart(() => ({
+  functionMiddleware: [attachSupabaseAuth],
+  requestMiddleware: [errorMiddleware, csrfMiddleware],
+}));
+
+Modified
+src/styles.css
+
+/*
+ * Tailwind v4 entry: config lives here, with no tailwind.config.js or PostCSS plugin.
+ * - Keep every @import in this top block, above @theme and the rest of the file. Install an
+ *   npm package before @importing its CSS. Never @import a remote URL (web fonts, CDN CSS): the
+ *   build resolves @import from the filesystem. Load those with a <link> in the head() of
+ *   src/routes/__root.tsx and name the family in a --font-* token in @theme inline below.
+ */
+@import "tailwindcss" source(none);
+@source "../src";
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design system definition.
+ *
+ * The design lives in this file: oklch color tokens on the shadcn variables
+ * (--background, --foreground, --primary, --secondary, --muted, --accent, ...) plus
+ * new tokens as needed, font tokens, and custom styles and animations.
+ *
+ * The @theme inline block maps CSS custom properties to Tailwind utility
+ * classes (e.g. --color-primary -> bg-primary, text-primary).
+ *
+ * The :root and .dark blocks define the actual color values using oklch.
+ * All colors MUST use oklch format.
+ *
+ * To add a new semantic color:
+ * 1. Add the variable to :root (light value) and .dark (dark value)
+ * 2. Register it in @theme inline as --color-<name>: var(--<name>)
+ */
+
+@theme inline {
+  --font-display: "Syne", ui-sans-serif, sans-serif;
+  --font-sans: "Manrope", ui-sans-serif, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-bubble: var(--bubble);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.129 0.042 264.695);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.129 0.042 264.695);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.129 0.042 264.695);
+  --primary: oklch(0.208 0.042 265.755);
+  --primary-foreground: oklch(0.984 0.003 247.858);
+  --secondary: oklch(0.968 0.007 247.896);
+  --secondary-foreground: oklch(0.208 0.042 265.755);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.554 0.046 257.417);
+  --accent: oklch(0.968 0.007 247.896);
+  --accent-foreground: oklch(0.208 0.042 265.755);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(0.929 0.013 255.508);
+  --input: oklch(0.929 0.013 255.508);
+  --ring: oklch(0.704 0.04 256.788);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.984 0.003 247.858);
+  --sidebar-foreground: oklch(0.129 0.042 264.695);
+  --sidebar-primary: oklch(0.208 0.042 265.755);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.968 0.007 247.896);
+  --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
+  --sidebar-border: oklch(0.929 0.013 255.508);
+  --sidebar-ring: oklch(0.704 0.04 256.788);
+}
+
+.dark {
+  --background: oklch(0.129 0.042 264.695);
+  --foreground: oklch(0.984 0.003 247.858);
+  --card: oklch(0.208 0.042 265.755);
+  --card-foreground: oklch(0.984 0.003 247.858);
+  --popover: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.984 0.003 247.858);
+  --primary: oklch(0.929 0.013 255.508);
+  --primary-foreground: oklch(0.208 0.042 265.755);
+  --secondary: oklch(0.279 0.041 260.031);
+  --secondary-foreground: oklch(0.984 0.003 247.858);
+  --muted: oklch(0.279 0.041 260.031);
+  --muted-foreground: oklch(0.704 0.04 256.788);
+  --accent: oklch(0.279 0.041 260.031);
+  --accent-foreground: oklch(0.984 0.003 247.858);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.551 0.027 264.364);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.208 0.042 265.755);
+  --sidebar-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.279 0.041 260.031);
+  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.551 0.027 264.364);
+  --radius: 1rem;
+  --background: oklch(0.17 0.015 310);
+  --foreground: oklch(0.96 0.01 320);
+  --card: oklch(0.215 0.02 310);
+  --card-foreground: oklch(0.96 0.01 320);
+  --popover: oklch(0.215 0.02 310);
+  --popover-foreground: oklch(0.96 0.01 320);
+  --primary: oklch(0.7 0.19 15);
+  --primary-foreground: oklch(0.15 0.02 310);
+  --secondary: oklch(0.27 0.025 310);
+  --secondary-foreground: oklch(0.96 0.01 320);
+  --muted: oklch(0.25 0.02 310);
+  --muted-foreground: oklch(0.7 0.02 310);
+  --accent: oklch(0.82 0.13 70);
+  --accent-foreground: oklch(0.17 0.015 310);
+  --destructive: oklch(0.62 0.22 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.32 0.02 310);
+  --input: oklch(0.32 0.02 310);
+  --ring: oklch(0.7 0.19 15);
+  --bubble: oklch(0.29 0.03 310);
+  --gradient-brand: linear-gradient(135deg, oklch(0.7 0.19 15), oklch(0.82 0.13 70));
+  --gradient-fade: linear-gradient(to top, oklch(0.12 0.02 310 / 0.95), transparent 60%);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  * { border-color: var(--color-border); }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    background-image: radial-gradient(ellipse at top, oklch(0.7 0.19 15 / 0.08), transparent 55%);
+    min-height: 100vh;
+  }
+  h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.02em; }
+}
+
+@utility bg-brand { background-image: var(--gradient-brand); }
+@utility text-brand {
+  background-image: var(--gradient-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@utility bg-fade { background-image: var(--gradient-fade); }

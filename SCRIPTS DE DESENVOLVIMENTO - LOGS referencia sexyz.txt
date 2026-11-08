@@ -1,0 +1,1451 @@
+
+
+styles.css
+src/styles.css
+
+
+/*
+ * Tailwind v4 entry: config lives here, with no tailwind.config.js or PostCSS plugin.
+ * - Keep every @import in this top block, above @theme and the rest of the file. Install an
+ *   npm package before @importing its CSS. Never @import a remote URL (web fonts, CDN CSS): the
+ *   build resolves @import from the filesystem. Load those with a <link> in the head() of
+ *   src/routes/__root.tsx and name the family in a --font-* token in @theme inline below.
+ */
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design system definition.
+ *
+ * The design lives in this file: oklch color tokens on the shadcn variables
+ * (--background, --foreground, --primary, --secondary, --muted, --accent, ...) plus
+ * new tokens as needed, font tokens, and custom styles and animations.
+ *
+ * The @theme inline block maps CSS custom properties to Tailwind utility
+ * classes (e.g. --color-primary -> bg-primary, text-primary).
+ *
+ * The :root and .dark blocks define the actual color values using oklch.
+ * All colors MUST use oklch format.
+ *
+ * To add a new semantic color:
+ * 1. Add the variable to :root (light value) and .dark (dark value)
+ * 2. Register it in @theme inline as --color-<name>: var(--<name>)
+ */
+
+@theme inline {
+  --font-display: "Syne", ui-sans-serif, sans-serif;
+  --font-sans: "Manrope", ui-sans-serif, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-bubble: var(--bubble);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.129 0.042 264.695);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.129 0.042 264.695);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.129 0.042 264.695);
+  --primary: oklch(0.208 0.042 265.755);
+  --primary-foreground: oklch(0.984 0.003 247.858);
+  --secondary: oklch(0.968 0.007 247.896);
+  --secondary-foreground: oklch(0.208 0.042 265.755);
+  --muted: oklch(0.968 0.007 247.896);
+  --muted-foreground: oklch(0.554 0.046 257.417);
+  --accent: oklch(0.968 0.007 247.896);
+  --accent-foreground: oklch(0.208 0.042 265.755);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(0.929 0.013 255.508);
+  --input: oklch(0.929 0.013 255.508);
+  --ring: oklch(0.704 0.04 256.788);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.984 0.003 247.858);
+  --sidebar-foreground: oklch(0.129 0.042 264.695);
+  --sidebar-primary: oklch(0.208 0.042 265.755);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.968 0.007 247.896);
+  --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
+  --sidebar-border: oklch(0.929 0.013 255.508);
+  --sidebar-ring: oklch(0.704 0.04 256.788);
+}
+
+.dark {
+  --background: oklch(0.129 0.042 264.695);
+  --foreground: oklch(0.984 0.003 247.858);
+  --card: oklch(0.208 0.042 265.755);
+  --card-foreground: oklch(0.984 0.003 247.858);
+  --popover: oklch(0.208 0.042 265.755);
+  --popover-foreground: oklch(0.984 0.003 247.858);
+  --primary: oklch(0.929 0.013 255.508);
+  --primary-foreground: oklch(0.208 0.042 265.755);
+  --secondary: oklch(0.279 0.041 260.031);
+  --secondary-foreground: oklch(0.984 0.003 247.858);
+  --muted: oklch(0.279 0.041 260.031);
+  --muted-foreground: oklch(0.704 0.04 256.788);
+  --accent: oklch(0.279 0.041 260.031);
+  --accent-foreground: oklch(0.984 0.003 247.858);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.551 0.027 264.364);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.208 0.042 265.755);
+  --sidebar-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-accent: oklch(0.279 0.041 260.031);
+  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.551 0.027 264.364);
+  --radius: 1rem;
+  --background: oklch(0.17 0.015 310);
+  --foreground: oklch(0.96 0.01 320);
+  --card: oklch(0.215 0.02 310);
+  --card-foreground: oklch(0.96 0.01 320);
+  --popover: oklch(0.215 0.02 310);
+  --popover-foreground: oklch(0.96 0.01 320);
+  --primary: oklch(0.7 0.19 15);
+  --primary-foreground: oklch(0.15 0.02 310);
+  --secondary: oklch(0.27 0.025 310);
+  --secondary-foreground: oklch(0.96 0.01 320);
+  --muted: oklch(0.25 0.02 310);
+  --muted-foreground: oklch(0.7 0.02 310);
+  --accent: oklch(0.82 0.13 70);
+  --accent-foreground: oklch(0.17 0.015 310);
+  --destructive: oklch(0.62 0.22 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.32 0.02 310);
+  --input: oklch(0.32 0.02 310);
+  --ring: oklch(0.7 0.19 15);
+  --bubble: oklch(0.29 0.03 310);
+  --gradient-brand: linear-gradient(135deg, oklch(0.7 0.19 15), oklch(0.82 0.13 70));
+  --gradient-fade: linear-gradient(to top, oklch(0.12 0.02 310 / 0.95), transparent 60%);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  * { border-color: var(--color-border); }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    background-image: radial-gradient(ellipse at top, oklch(0.7 0.19 15 / 0.08), transparent 55%);
+    min-height: 100vh;
+  }
+  h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.02em; }
+}
+
+@utility bg-brand { background-image: var(--gradient-brand); }
+@utility text-brand {
+  background-image: var(--gradient-brand);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@utility bg-fade { background-image: var(--gradient-fade); }
+
+
+
+regras.ts
+src/lib/regras.ts
+
+
+export function calcularIdade(nascimento: string | null | undefined, hoje = new Date()): number | null {
+  if (!nascimento) return null;
+  const d = new Date(nascimento + "T00:00:00");
+  if (isNaN(d.getTime())) return null;
+  let idade = hoje.getFullYear() - d.getFullYear();
+  const m = hoje.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && hoje.getDate() < d.getDate())) idade--;
+  return idade;
+}
+
+export function maiorDeIdade(nascimento: string, hoje = new Date()) {
+  const i = calcularIdade(nascimento, hoje);
+  return i !== null && i >= 18;
+}
+
+export const MAX_FOTOS = 6;
+
+export const GENEROS = ["Homem", "Mulher", "Não binário", "Prefiro não informar"];
+export const ORIENTACOES = ["Heterossexual", "Homossexual", "Bissexual", "Pansexual", "Assexual", "Outra", "Prefiro não informar"];
+export const DESEJOS = ["Homens e mulheres", "Homens", "Mulheres", "Outras identidades"];
+export const ESTADOS = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
+
+
+
+regras.test.ts
+src/test/regras.test.ts
+
+
+import { describe, it, expect } from "vitest";
+import { calcularIdade, maiorDeIdade } from "@/lib/regras";
+
+const hoje = new Date("2026-11-07T12:00:00");
+
+describe("regras de idade", () => {
+  it("bloqueia menores de 18 anos", () => {
+    expect(maiorDeIdade("2008-11-08", hoje)).toBe(false);
+  });
+  it("aceita quem faz 18 anos hoje", () => {
+    expect(maiorDeIdade("2008-11-07", hoje)).toBe(true);
+  });
+  it("calcula idade corretamente", () => {
+    expect(calcularIdade("1998-12-01", hoje)).toBe(27);
+  });
+});
+
+
+
+fotos.ts
+src/lib/fotos.ts
+
+
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+
+/** Converte caminhos guardados no perfil em links temporários (o armazenamento é privado). */
+export function useFotoUrls(paths: string[] | null | undefined) {
+  const list = (paths ?? []).filter(Boolean);
+  return useQuery({
+    queryKey: ["fotos", list],
+    enabled: list.length > 0,
+    staleTime: 50 * 60 * 1000,
+    queryFn: async () => {
+      const { data, error } = await supabase.storage.from("fotos").createSignedUrls(list, 3600);
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      data?.forEach((d) => { if (d.path && d.signedUrl) map[d.path] = d.signedUrl; });
+      return map;
+    },
+  });
+}
+
+
+auth.ts
+src/lib/auth.ts
+
+
+import { useEffect, useState } from "react";
+import type { User } from "@supabase/supabase-js";
+import { supabase } from "@/integrations/supabase/client";
+
+export function useUser() {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => { setUser(data.user); setLoading(false); });
+    const { data } = supabase.auth.onAuthStateChange((_e, s) => setUser(s?.user ?? null));
+    return () => data.subscription.unsubscribe();
+  }, []);
+  return { user, loading };
+}
+
+__root.tsx
+src/routes/__root.tsx
+
+
+    meta: [
+      { charSet: "utf-8" },
+      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { title: "Lovable App" },
+      { name: "description", content: "Lovable Generated Project" },
+      { name: "author", content: "Lovable" },
+      { property: "og:title", content: "Lovable App" },
+      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "SEXYZ — Conexões de verdade" },
+      { name: "description", content: "SEXYZ: encontre pessoas, curta perfis, dê match e converse." },
+      { property: "og:title", content: "SEXYZ — Conexões de verdade" },
+      { property: "og:description", content: "SEXYZ: encontre pessoas, curta perfis, dê match e converse." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:site", content: "@Lovable" },
+    ],
+    links: [
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap" },
+      {
+        rel: "stylesheet",
+        href: appCss,
+
+
+__root.tsx
+src/routes/__root.tsx
+
+function RootComponent() {
+  const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event !== "SIGNED_IN" && event !== "SIGNED_OUT" && event !== "USER_UPDATED") return;
+      router.invalidate();
+      if (event !== "SIGNED_OUT") queryClient.invalidateQueries();
+    });
+    return () => data.subscription.unsubscribe();
+  }, [router, queryClient]);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
+      <Outlet />
+      <Toaster richColors position="top-center" />
+    </QueryClientProvider>
+  );
+}
+
+
+
+__root.tsx
+src/routes/__root.tsx
+
+import appCss from "../styles.css?url";
+import { reportLovableError } from "../lib/lovable-error-reporting";
+import { supabase } from "@/integrations/supabase/client";
+import { Toaster } from "@/components/ui/sonner";
+
+function NotFoundComponent() {
+  return (
+
+
+
+__root.tsx
+src/routes/__root.tsx
+
+function RootShell({ children }: { children: ReactNode }) {
+  return (
+    <html lang="en">
+    <html lang="pt-BR" className="dark">
+      <head>
+        <HeadContent />
+      </head>
+
+
+
+AppShell.tsx
+src/components/AppShell.tsx
+
+
+import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
+
+const links = [
+  { to: "/descobrir", label: "Descobrir" },
+  { to: "/matches", label: "Curtidas & Matches" },
+  { to: "/mensagens", label: "Mensagens" },
+  { to: "/perfil", label: "Meu perfil" },
+  { to: "/configuracoes", label: "Configurações" },
+] as const;
+
+export function Brand() {
+  return (
+    <Link to="/" className="font-display text-2xl font-extrabold tracking-tight">
+      NE<span className="text-brand">X</span>O
+    </Link>
+  );
+}
+
+export function AppShell({ children }: { children: ReactNode }) {
+  return (
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+          <Brand />
+          <nav className="flex flex-wrap gap-1 text-sm">
+            {links.map((l) => (
+              <Link
+                key={l.to}
+                to={l.to}
+                className="rounded-full px-3 py-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                activeProps={{ className: "rounded-full px-3 py-1.5 bg-secondary text-foreground" }}
+              >
+                {l.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
+      </header>
+      <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
+      <footer className="py-8 text-center text-xs text-muted-foreground">
+        SEXYZ • Serviço destinado exclusivamente a maiores de 18 anos.
+      </footer>
+    </div>
+  );
+}
+
+export function Avatar({ url, nome, size = 48 }: { url?: string; nome: string; size?: number }) {
+  return url ? (
+    <img src={url} alt={nome} style={{ width: size, height: size }} className="shrink-0 rounded-full object-cover" />
+  ) : (
+    <div style={{ width: size, height: size }} className="grid shrink-0 place-items-center rounded-full bg-brand font-display font-bold text-primary-foreground">
+      {nome.charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
+
+
+route.tsx
+src/routes/_authenticated/route.tsx
+
+
+import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { supabase } from "@/integrations/supabase/client";
+import { AppShell } from "@/components/AppShell";
+
+export const Route = createFileRoute("/_authenticated")({
+  ssr: false,
+  beforeLoad: async () => {
+    const { data } = await supabase.auth.getUser();
+    if (!data.user) throw redirect({ to: "/login" });
+    return { userId: data.user.id };
+  },
+  component: () => (
+    <AppShell>
+      <Outlet />
+    </AppShell>
+  ),
+});
+
+
+index.tsx
+src/routes/index.tsx
+
+
+import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
+import { Brand } from "@/components/AppShell";
+import hero from "@/assets/hero-SEXYZ.jpg";
+
+// The home route ships no og:image, so serve-time hosting can inject the
+// project's social preview (explicit og:image or latest screenshot).
+export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "SEXYZ — Conexões de verdade" },
+      { name: "description", content: "Descubra pessoas perto de você, curta perfis e converse quando der match." },
+      { property: "og:title", content: "SEXYZ — Conexões de verdade" },
+      { property: "og:description", content: "Descubra pessoas perto de você, curta perfis e converse quando der match." },
+    ],
+  }),
+  component: Index,
+});
+
+// IMPORTANT: Replace this placeholder. See ./README.md for routing conventions.
+function Index() {
+  return (
+    <div
+      className="flex min-h-screen items-center justify-center"
+      style={{ backgroundColor: "#fcfbf8" }}
+    >
+      <img
+        data-lovable-blank-page-placeholder="REMOVE_THIS"
+        src="https://cdn.gpteng.co/blank-app-v1.svg"
+        alt="Your app will live here!"
+      />
+    <div className="min-h-screen">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5">
+        <Brand />
+        <div className="flex gap-2">
+          <Button asChild variant="ghost"><Link to="/login">Entrar</Link></Button>
+          <Button asChild><Link to="/cadastro">Criar conta</Link></Button>
+        </div>
+      </header>
+      <main className="mx-auto grid max-w-6xl items-center gap-10 px-4 py-10 md:grid-cols-2">
+        <div>
+          <p className="mb-3 text-sm font-semibold uppercase tracking-widest text-accent">Sua próxima conexão</p>
+          <h1 className="text-5xl font-extrabold leading-[1.05] md:text-6xl">
+            Curta. Dê <span className="text-brand">match</span>. Converse.
+          </h1>
+          <p className="mt-5 max-w-md text-lg text-muted-foreground">
+            Perfis reais filtrados por idade, gênero e região. As conversas só abrem quando o interesse é mútuo.
+          </p>
+          <div className="mt-8 flex gap-3">
+            <Button asChild size="lg"><Link to="/cadastro">Começar agora</Link></Button>
+            <Button asChild size="lg" variant="outline"><Link to="/login">Já tenho conta</Link></Button>
+          </div>
+        </div>
+        <img src={hero} alt="Casal sorrindo ao entardecer" className="aspect-[5/6] w-full rounded-3xl object-cover shadow-2xl" />
+      </main>
+    </div>
+  );
+}
+
+
+
+AuthCard.tsx
+src/components/AuthCard.tsx
+
+
+import type { ReactNode } from "react";
+import { Brand } from "@/components/AppShell";
+
+export function AuthCard({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+  return (
+    <div className="grid min-h-screen place-items-center px-4 py-10">
+      <div className="w-full max-w-md">
+        <div className="mb-6 text-center"><Brand /></div>
+        <div className="rounded-3xl border bg-card p-7 shadow-xl">
+          <h1 className="text-2xl font-bold">{title}</h1>
+          {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+          <div className="mt-6">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export const selectClass =
+  "h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
+
+
+login.tsx
+src/routes/login.tsx
+
+
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { AuthCard } from "@/components/AuthCard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export const Route = createFileRoute("/login")({
+  head: () => ({
+    meta: [
+      { title: "Entrar | SEXYZ" },
+      { name: "description", content: "Entre na sua conta SEXYZ." },
+      { property: "og:title", content: "Entrar | SEXYZ" },
+      { property: "og:description", content: "Entre na sua conta SEXYZ." },
+    ],
+  }),
+  component: Login,
+});
+
+function Login() {
+  const nav = useNavigate();
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function entrar(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password: senha });
+    setLoading(false);
+    if (error) {
+      toast.error(error.message.includes("confirmed") ? "Confirme seu e-mail antes de entrar." : "E-mail ou senha incorretos.");
+      return;
+    }
+    nav({ to: "/descobrir" });
+  }
+
+  return (
+    <AuthCard title="Bem-vindo de volta" subtitle="Entre para ver quem está esperando por você.">
+      <form onSubmit={entrar} className="space-y-4">
+        <div className="space-y-1.5"><Label>E-mail</Label><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+        <div className="space-y-1.5">
+          <div className="flex justify-between">
+            <Label>Senha</Label>
+            <Link to="/esqueci-senha" className="text-xs text-primary hover:underline">Esqueci minha senha</Link>
+          </div>
+          <Input type="password" required value={senha} onChange={(e) => setSenha(e.target.value)} />
+        </div>
+        <Button type="submit" className="w-full" disabled={loading}>{loading ? "Entrando..." : "Entrar"}</Button>
+      </form>
+      <p className="mt-5 text-center text-sm text-muted-foreground">
+        Ainda não tem conta? <Link to="/cadastro" className="text-primary hover:underline">Criar conta</Link>
+      </p>
+    </AuthCard>
+  );
+}
+
+
+
+
+esqueci-senha.tsx
+src/routes/esqueci-senha.tsx
+
+
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { AuthCard } from "@/components/AuthCard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export const Route = createFileRoute("/esqueci-senha")({
+  head: () => ({
+    meta: [
+      { title: "Recuperar senha | SEXYZ" },
+      { name: "description", content: "Receba um link para criar uma nova senha." },
+      { property: "og:title", content: "Recuperar senha | SEXYZ" },
+      { property: "og:description", content: "Receba um link para criar uma nova senha." },
+    ],
+  }),
+  component: Esqueci,
+});
+
+function Esqueci() {
+  const [email, setEmail] = useState("");
+  const [enviado, setEnviado] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function enviar(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    setLoading(false);
+    if (error) return toast.error("Não foi possível enviar o e-mail. Tente novamente.");
+    setEnviado(true);
+  }
+
+  return (
+    <AuthCard title="Recuperar senha" subtitle="Enviaremos um link para você criar uma nova senha.">
+      {enviado ? (
+        <p className="text-sm">Pronto! Se existir uma conta com <b>{email}</b>, você receberá o link em instantes. Confira também a caixa de spam.</p>
+      ) : (
+        <form onSubmit={enviar} className="space-y-4">
+          <div className="space-y-1.5"><Label>E-mail</Label><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+          <Button type="submit" className="w-full" disabled={loading}>{loading ? "Enviando..." : "Enviar link"}</Button>
+        </form>
+      )}
+      <p className="mt-5 text-center text-sm"><Link to="/login" className="text-primary hover:underline">Voltar ao login</Link></p>
+    </AuthCard>
+  );
+}
+
+
+reset-password.tsx
+src/routes/reset-password.tsx
+
+
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { AuthCard } from "@/components/AuthCard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export const Route = createFileRoute("/reset-password")({
+  head: () => ({
+    meta: [
+      { title: "Nova senha | SEXYZ" },
+      { name: "description", content: "Defina uma nova senha para sua conta SEXYZ." },
+      { property: "og:title", content: "Nova senha | SEXYZ" },
+      { property: "og:description", content: "Defina uma nova senha para sua conta SEXYZ." },
+    ],
+  }),
+  component: Reset,
+});
+
+function Reset() {
+  const nav = useNavigate();
+  const [senha, setSenha] = useState("");
+  const [conf, setConf] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    if (senha.length < 6) return toast.error("A senha precisa ter pelo menos 6 caracteres.");
+    if (senha !== conf) return toast.error("As senhas não coincidem.");
+    setLoading(true);
+    const { error } = await supabase.auth.updateUser({ password: senha });
+    setLoading(false);
+    if (error) return toast.error("Link expirado ou inválido. Peça um novo link.");
+    toast.success("Senha alterada!");
+    nav({ to: "/descobrir" });
+  }
+
+  return (
+    <AuthCard title="Criar nova senha">
+      <form onSubmit={salvar} className="space-y-4">
+        <div className="space-y-1.5"><Label>Nova senha</Label><Input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} /></div>
+        <div className="space-y-1.5"><Label>Confirmar senha</Label><Input type="password" value={conf} onChange={(e) => setConf(e.target.value)} /></div>
+        <Button type="submit" className="w-full" disabled={loading}>Salvar nova senha</Button>
+      </form>
+    </AuthCard>
+  );
+}
+
+
+
+cadastro.tsx
+src/routes/cadastro.tsx
+
+
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { AuthCard, selectClass } from "@/components/AuthCard";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { DESEJOS, ESTADOS, GENEROS, ORIENTACOES, maiorDeIdade } from "@/lib/regras";
+
+export const Route = createFileRoute("/cadastro")({
+  head: () => ({
+    meta: [
+      { title: "Criar conta | SEXYZ" },
+      { name: "description", content: "Crie seu perfil no SEXYZ e comece a se conectar." },
+      { property: "og:title", content: "Criar conta | SEXYZ" },
+      { property: "og:description", content: "Crie seu perfil no SEXYZ e comece a se conectar." },
+    ],
+  }),
+  component: Cadastro,
+});
+
+function Cadastro() {
+  const [f, setF] = useState({ nome: "", email: "", senha: "", data_nascimento: "", genero: "", orientacao: "", desejo: DESEJOS[0], cidade: "", estado: "" });
+  const [loading, setLoading] = useState(false);
+  const [enviado, setEnviado] = useState(false);
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
+
+  async function cadastrar(e: React.FormEvent) {
+    e.preventDefault();
+    if (!maiorDeIdade(f.data_nascimento)) return toast.error("A plataforma é exclusiva para maiores de 18 anos.");
+    if (f.senha.length < 6) return toast.error("A senha precisa ter pelo menos 6 caracteres.");
+    setLoading(true);
+    const { email, senha, ...meta } = f;
+    const { error } = await supabase.auth.signUp({
+      email, password: senha,
+      options: { emailRedirectTo: `${window.location.origin}/descobrir`, data: meta },
+    });
+    setLoading(false);
+    if (error) return toast.error(error.message.includes("registered") ? "Este e-mail já está cadastrado." : error.message);
+    setEnviado(true);
+  }
+
+  if (enviado)
+    return (
+      <AuthCard title="Confirme seu e-mail">
+        <p className="text-sm">Enviamos um link de confirmação para <b>{f.email}</b>. Clique nele para ativar sua conta e entrar.</p>
+        <Button asChild className="mt-5 w-full"><Link to="/login">Ir para o login</Link></Button>
+      </AuthCard>
+    );
+
+  return (
+    <AuthCard title="Criar sua conta" subtitle="Preencha seus dados para iniciar seu perfil.">
+      <form onSubmit={cadastrar} className="space-y-4">
+        <div className="space-y-1.5"><Label>Nome ou apelido</Label><Input required value={f.nome} onChange={set("nome")} /></div>
+        <div className="space-y-1.5"><Label>E-mail</Label><Input type="email" required value={f.email} onChange={set("email")} /></div>
+        <div className="space-y-1.5"><Label>Senha</Label><Input type="password" required value={f.senha} onChange={set("senha")} /></div>
+        <div className="space-y-1.5"><Label>Data de nascimento</Label><Input type="date" required value={f.data_nascimento} onChange={set("data_nascimento")} /></div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1.5"><Label>Gênero</Label>
+            <select required className={selectClass} value={f.genero} onChange={set("genero")}><option value="">Selecione</option>{GENEROS.map((g) => <option key={g}>{g}</option>)}</select></div>
+          <div className="space-y-1.5"><Label>Orientação</Label>
+            <select className={selectClass} value={f.orientacao} onChange={set("orientacao")}><option value="">Selecione</option>{ORIENTACOES.map((g) => <option key={g}>{g}</option>)}</select></div>
+        </div>
+        <div className="space-y-1.5"><Label>Desejo encontrar</Label>
+          <select className={selectClass} value={f.desejo} onChange={set("desejo")}>{DESEJOS.map((g) => <option key={g}>{g}</option>)}</select></div>
+        <div className="grid grid-cols-[1fr_6rem] gap-3">
+          <div className="space-y-1.5"><Label>Cidade</Label><Input required value={f.cidade} onChange={set("cidade")} /></div>
+          <div className="space-y-1.5"><Label>UF</Label>
+            <select required className={selectClass} value={f.estado} onChange={set("estado")}><option value="">--</option>{ESTADOS.map((u) => <option key={u}>{u}</option>)}</select></div>
+        </div>
+        <Button type="submit" className="w-full" disabled={loading}>{loading ? "Criando..." : "Criar conta"}</Button>
+      </form>
+      <p className="mt-5 text-center text-sm text-muted-foreground">Já tem conta? <Link to="/login" className="text-primary hover:underline">Entrar</Link></p>
+    </AuthCard>
+  );
+}
+
+
+dados.ts
+src/lib/dados.ts
+
+
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
+
+export type Perfil = Database["public"]["Tables"]["profiles"]["Row"];
+
+/** Curtidas recebidas e enviadas, com os perfis envolvidos, e a lista de matches (curtida mútua). */
+export function useCoSEXYZes(userId: string) {
+  return useQuery({
+    queryKey: ["coSEXYZes", userId],
+    queryFn: async () => {
+      const { data: likes, error } = await supabase
+        .from("likes")
+        .select("liker_id, liked_id, created_at")
+        .or(`liker_id.eq.${userId},liked_id.eq.${userId}`)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      const enviei = new Set(likes.filter((l) => l.liker_id === userId).map((l) => l.liked_id));
+      const recebi = new Set(likes.filter((l) => l.liked_id === userId).map((l) => l.liker_id));
+      const ids = [...new Set([...enviei, ...recebi])];
+      let perfis: Perfil[] = [];
+      if (ids.length) {
+        const { data, error: e2 } = await supabase.from("profiles").select("*").in("id", ids);
+        if (e2) throw e2;
+        perfis = data;
+      }
+      const byId = new Map(perfis.map((p) => [p.id, p]));
+      const pick = (s: string[]) => s.map((id) => byId.get(id)).filter(Boolean) as Perfil[];
+      return {
+        curtiramVoce: pick([...recebi].filter((id) => !enviei.has(id))),
+        vocêCurtiu: pick([...enviei].filter((id) => !recebi.has(id))),
+        matches: pick([...enviei].filter((id) => recebi.has(id))),
+      };
+    },
+  });
+}
+
+PerfilCard.tsx
+src/components/PerfilCard.tsx
+
+
+import type { ReactNode } from "react";
+import type { Perfil } from "@/lib/dados";
+import { calcularIdade } from "@/lib/regras";
+
+export function PerfilCard({ p, foto, children }: { p: Perfil; foto?: string; children?: ReactNode }) {
+  const idade = calcularIdade(p.data_nascimento);
+  return (
+    <article className="overflow-hidden rounded-3xl border bg-card shadow-lg">
+      <div className="relative aspect-[4/5] bg-secondary">
+        {foto ? (
+          <img src={foto} alt={p.nome} loading="lazy" className="h-full w-full object-cover" />
+        ) : (
+          <div className="grid h-full place-items-center font-display text-7xl font-extrabold text-muted-foreground">
+            {p.nome.charAt(0).toUpperCase()}
+          </div>
+        )}
+        <div className="absolute inset-0 bg-fade" />
+        <div className="absolute bottom-0 p-4">
+          <h3 className="text-2xl font-bold">{p.nome}{idade !== null && <span className="font-normal">, {idade}</span>}</h3>
+          <p className="text-sm text-muted-foreground">{[p.cidade, p.estado].filter(Boolean).join(" - ") || "Região não informada"}</p>
+        </div>
+      </div>
+      <div className="space-y-3 p-4">
+        {p.bio && <p className="line-clamp-3 text-sm text-muted-foreground">{p.bio}</p>}
+        {p.interesses && (
+          <div className="flex flex-wrap gap-1.5">
+            {p.interesses.split(",").map((i) => i.trim()).filter(Boolean).slice(0, 5).map((i) => (
+              <span key={i} className="rounded-full bg-secondary px-2.5 py-0.5 text-xs">{i}</span>
+            ))}
+          </div>
+        )}
+        {children}
+      </div>
+    </article>
+  );
+}
+
+
+
+descobrir.tsx
+src/routes/_authenticated/descobrir.tsx
+
+
+import { createFileRoute } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { Heart, X, Shuffle, SlidersHorizontal } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { selectClass } from "@/components/AuthCard";
+import { PerfilCard } from "@/components/PerfilCard";
+import { useFotoUrls } from "@/lib/fotos";
+import { ESTADOS, GENEROS } from "@/lib/regras";
+
+export const Route = createFileRoute("/_authenticated/descobrir")({
+  head: () => ({
+    meta: [
+      { title: "Descobrir | SEXYZ" },
+      { name: "description", content: "Perfis aleatórios de acordo com seus filtros." },
+      { property: "og:title", content: "Descobrir | SEXYZ" },
+      { property: "og:description", content: "Perfis aleatórios de acordo com seus filtros." },
+    ],
+  }),
+  component: Descobrir,
+});
+
+type Filtros = { idadeMin: number; idadeMax: number; genero: string; estado: string; cidade: string };
+const PADRAO: Filtros = { idadeMin: 18, idadeMax: 60, genero: "", estado: "", cidade: "" };
+
+function Descobrir() {
+  const { userId } = Route.useRouteContext();
+  const qc = useQueryClient();
+  const [filtros, setFiltros] = useState<Filtros>(PADRAO);
+  const [rascunho, setRascunho] = useState<Filtros>(PADRAO);
+  const [aberto, setAberto] = useState(false);
+  const [ocultos, setOcultos] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const salvo = localStorage.getItem("SEXYZ_filtros");
+    if (salvo) { const f = { ...PADRAO, ...JSON.parse(salvo) }; setFiltros(f); setRascunho(f); }
+  }, []);
+
+  const { data: perfis = [], isLoading, refetch, isFetching } = useQuery({
+    queryKey: ["descobrir", filtros],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("descobrir", {
+        idade_min: filtros.idadeMin, idade_max: filtros.idadeMax,
+        genero_f: filtros.genero, estado_f: filtros.estado, cidade_f: filtros.cidade,
+      });
+      if (error) throw error;
+      return data;
+    },
+  });
+  const visiveis = perfis.filter((p) => !ocultos.has(p.id));
+  const { data: urls = {} } = useFotoUrls(visiveis.map((p) => p.fotos[0]).filter(Boolean));
+
+  function aplicar() {
+    setFiltros(rascunho);
+    localStorage.setItem("SEXYZ_filtros", JSON.stringify(rascunho));
+    setOcultos(new Set());
+    setAberto(false);
+  }
+
+  async function curtir(id: string, nome: string) {
+    const { error } = await supabase.from("likes").insert({ liker_id: userId, liked_id: id });
+    if (error && !error.message.includes("duplicate")) return toast.error("Não foi possível curtir.");
+    setOcultos((s) => new Set(s).add(id));
+    const { data: match } = await supabase.rpc("is_match", { a: userId, b: id });
+    if (match) toast.success(`É um match com ${nome}! Agora vocês podem conversar.`);
+    else toast(`Você curtiu ${nome}.`);
+    qc.invalidateQueries({ queryKey: ["coSEXYZes"] });
+  }
+
+  return (
+    <div>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-widest text-accent">Sua próxima conexão</p>
+          <h1 className="text-4xl font-extrabold">Descobrir pessoas</h1>
+          <p className="text-sm text-muted-foreground">
+            {filtros.idadeMin}–{filtros.idadeMax} anos · {filtros.genero || "Todos os gêneros"} · {[filtros.cidade, filtros.estado].filter(Boolean).join("/") || "Todo o Brasil"}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => { setOcultos(new Set()); refetch(); }} disabled={isFetching}><Shuffle className="size-4" /> Embaralhar</Button>
+          <Button variant="secondary" onClick={() => setAberto(!aberto)}><SlidersHorizontal className="size-4" /> Filtros</Button>
+        </div>
+      </div>
+
+      {aberto && (
+        <div className="mb-6 grid gap-4 rounded-3xl border bg-card p-5 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="space-y-1.5"><Label>Idade mínima</Label><Input type="number" min={18} max={99} value={rascunho.idadeMin} onChange={(e) => setRascunho({ ...rascunho, idadeMin: Math.max(18, +e.target.value) })} /></div>
+          <div className="space-y-1.5"><Label>Idade máxima</Label><Input type="number" min={18} max={99} value={rascunho.idadeMax} onChange={(e) => setRascunho({ ...rascunho, idadeMax: +e.target.value })} /></div>
+          <div className="space-y-1.5"><Label>Gênero</Label>
+            <select className={selectClass} value={rascunho.genero} onChange={(e) => setRascunho({ ...rascunho, genero: e.target.value })}>
+              <option value="">Todos</option>{GENEROS.map((g) => <option key={g}>{g}</option>)}</select></div>
+          <div className="space-y-1.5"><Label>Estado</Label>
+            <select className={selectClass} value={rascunho.estado} onChange={(e) => setRascunho({ ...rascunho, estado: e.target.value })}>
+              <option value="">Todos</option>{ESTADOS.map((u) => <option key={u}>{u}</option>)}</select></div>
+          <div className="space-y-1.5"><Label>Cidade</Label><Input placeholder="Qualquer" value={rascunho.cidade} onChange={(e) => setRascunho({ ...rascunho, cidade: e.target.value })} /></div>
+          <div className="flex gap-2 lg:col-span-5">
+            <Button onClick={aplicar}>Aplicar filtros</Button>
+            <Button variant="ghost" onClick={() => setRascunho(PADRAO)}>Limpar</Button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <p className="text-muted-foreground">Buscando pessoas...</p>
+      ) : visiveis.length === 0 ? (
+        <div className="rounded-3xl border bg-card p-10 text-center">
+          <h3 className="text-xl font-bold">Ninguém novo por aqui</h3>
+          <p className="mt-2 text-sm text-muted-foreground">Tente ampliar a faixa etária ou a região nos filtros.</p>
+        </div>
+      ) : (
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {visiveis.map((p) => (
+            <PerfilCard key={p.id} p={p} foto={urls[p.fotos[0]]}>
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => setOcultos((s) => new Set(s).add(p.id))}><X className="size-4" /> Pular</Button>
+                <Button className="flex-1" onClick={() => curtir(p.id, p.nome)}><Heart className="size-4" /> Curtir</Button>
+              </div>
+            </PerfilCard>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+matches.tsx
+src/routes/_authenticated/matches.tsx
+
+
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { toast } from "sonner";
+import { Heart, MessageCircle } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { PerfilCard } from "@/components/PerfilCard";
+import { useCoSEXYZes, type Perfil } from "@/lib/dados";
+import { useFotoUrls } from "@/lib/fotos";
+
+export const Route = createFileRoute("/_authenticated/matches")({
+  head: () => ({
+    meta: [
+      { title: "Curtidas e matches | SEXYZ" },
+      { name: "description", content: "Veja quem curtiu você e seus matches." },
+      { property: "og:title", content: "Curtidas e matches | SEXYZ" },
+      { property: "og:description", content: "Veja quem curtiu você e seus matches." },
+    ],
+  }),
+  component: Matches,
+});
+
+type Aba = "matches" | "curtiramVoce" | "vocêCurtiu";
+
+function Matches() {
+  const { userId } = Route.useRouteContext();
+  const qc = useQueryClient();
+  const { data, isLoading } = useCoSEXYZes(userId);
+  const [aba, setAba] = useState<Aba>("curtiramVoce");
+  const lista: Perfil[] = data?.[aba] ?? [];
+  const { data: urls = {} } = useFotoUrls(lista.map((p) => p.fotos[0]).filter(Boolean));
+
+  async function curtirDeVolta(p: Perfil) {
+    const { error } = await supabase.from("likes").insert({ liker_id: userId, liked_id: p.id });
+    if (error) return toast.error("Não foi possível curtir.");
+    toast.success(`É um match com ${p.nome}!`);
+    qc.invalidateQueries({ queryKey: ["coSEXYZes"] });
+    setAba("matches");
+  }
+  async function descurtir(p: Perfil) {
+    await supabase.from("likes").delete().eq("liker_id", userId).eq("liked_id", p.id);
+    qc.invalidateQueries({ queryKey: ["coSEXYZes"] });
+  }
+
+  const abas: { id: Aba; label: string }[] = [
+    { id: "curtiramVoce", label: `Curtiram você (${data?.curtiramVoce.length ?? 0})` },
+    { id: "matches", label: `Matches (${data?.matches.length ?? 0})` },
+    { id: "vocêCurtiu", label: `Você curtiu (${data?.vocêCurtiu.length ?? 0})` },
+  ];
+
+  return (
+    <div>
+      <h1 className="mb-5 text-4xl font-extrabold">Curtidas & Matches</h1>
+      <div className="mb-6 flex flex-wrap gap-2">
+        {abas.map((a) => (
+          <Button key={a.id} variant={aba === a.id ? "default" : "secondary"} onClick={() => setAba(a.id)}>{a.label}</Button>
+        ))}
+      </div>
+      {isLoading ? <p className="text-muted-foreground">Carregando...</p> : lista.length === 0 ? (
+        <div className="rounded-3xl border bg-card p-10 text-center text-muted-foreground">
+          {aba === "curtiramVoce" ? "Ninguém curtiu você ainda. Complete seu perfil com fotos para chamar atenção!" :
+           aba === "matches" ? "Nenhum match ainda. Quando alguém que você curtiu curtir você de volta, aparece aqui." :
+           "Você ainda não curtiu ninguém."}
+          <div className="mt-4"><Button asChild><Link to="/descobrir">Descobrir pessoas</Link></Button></div>
+        </div>
+      ) : (
+        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {lista.map((p) => (
+            <PerfilCard key={p.id} p={p} foto={urls[p.fotos[0]]}>
+              {aba === "curtiramVoce" && <Button className="w-full" onClick={() => curtirDeVolta(p)}><Heart className="size-4" /> Curtir de volta</Button>}
+              {aba === "matches" && <Button asChild className="w-full"><Link to="/mensagens" search={{ com: p.id }}><MessageCircle className="size-4" /> Conversar</Link></Button>}
+              {aba === "vocêCurtiu" && <Button variant="outline" className="w-full" onClick={() => descurtir(p)}>Desfazer curtida</Button>}
+            </PerfilCard>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+mensagens.tsx
+src/routes/_authenticated/mensagens.tsx
+
+
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { Send } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Avatar } from "@/components/AppShell";
+import { useCoSEXYZes } from "@/lib/dados";
+import { useFotoUrls } from "@/lib/fotos";
+
+export const Route = createFileRoute("/_authenticated/mensagens")({
+  validateSearch: (s: Record<string, unknown>) => ({ com: typeof s.com === "string" ? s.com : undefined }),
+  head: () => ({
+    meta: [
+      { title: "Mensagens | SEXYZ" },
+      { name: "description", content: "Converse com seus matches." },
+      { property: "og:title", content: "Mensagens | SEXYZ" },
+      { property: "og:description", content: "Converse com seus matches." },
+    ],
+  }),
+  component: Mensagens,
+});
+
+function Mensagens() {
+  const { userId } = Route.useRouteContext();
+  const { com } = Route.useSearch();
+  const nav = useNavigate({ from: "/mensagens" });
+  const { data: coSEXYZes } = useCoSEXYZes(userId);
+  const matches = coSEXYZes?.matches ?? [];
+  const { data: urls = {} } = useFotoUrls(matches.map((p) => p.fotos[0]).filter(Boolean));
+  const ativo = matches.find((m) => m.id === com);
+  const [texto, setTexto] = useState("");
+  const fimRef = useRef<HTMLDivElement>(null);
+
+  const { data: msgs = [], refetch } = useQuery({
+    queryKey: ["msgs", userId, com],
+    enabled: !!com,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("messages").select("*")
+        .or(`and(sender_id.eq.${userId},receiver_id.eq.${com}),and(sender_id.eq.${com},receiver_id.eq.${userId})`)
+        .order("created_at");
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  useEffect(() => {
+    const ch = supabase
+      .channel(`msgs-${Math.random().toString(36).slice(2)}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, () => refetch())
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [refetch]);
+
+  useEffect(() => { fimRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs.length]);
+
+  async function enviar(e: React.FormEvent) {
+    e.preventDefault();
+    const t = texto.trim();
+    if (!t || !com) return;
+    setTexto("");
+    const { error } = await supabase.from("messages").insert({ sender_id: userId, receiver_id: com, content: t });
+    if (error) { toast.error("Mensagem não enviada. Vocês precisam ter dado match."); setTexto(t); return; }
+    refetch();
+  }
+
+  return (
+    <div>
+      <h1 className="mb-5 text-4xl font-extrabold">Mensagens</h1>
+      <div className="grid gap-4 md:grid-cols-[280px_1fr]">
+        <aside className="rounded-3xl border bg-card p-3">
+          <h3 className="px-2 pb-2 text-sm font-semibold text-muted-foreground">Seus matches</h3>
+          {matches.length === 0 && (
+            <p className="p-2 text-sm text-muted-foreground">Sem matches ainda. <Link to="/descobrir" className="text-primary">Descobrir pessoas</Link></p>
+          )}
+          {matches.map((m) => (
+            <button key={m.id} onClick={() => nav({ search: { com: m.id } })}
+              className={`flex w-full items-center gap-3 rounded-2xl p-2 text-left transition-colors hover:bg-secondary ${m.id === com ? "bg-secondary" : ""}`}>
+              <Avatar url={urls[m.fotos[0]]} nome={m.nome} size={44} />
+              <span className="font-semibold">{m.nome}</span>
+            </button>
+          ))}
+        </aside>
+
+        <section className="flex h-[65vh] flex-col rounded-3xl border bg-card">
+          {!ativo ? (
+            <div className="grid flex-1 place-items-center p-6 text-center text-muted-foreground">Escolha um match para conversar.</div>
+          ) : (
+            <>
+              <div className="flex items-center gap-3 border-b p-4">
+                <Avatar url={urls[ativo.fotos[0]]} nome={ativo.nome} size={40} />
+                <b>{ativo.nome}</b>
+              </div>
+              <div className="flex-1 space-y-2 overflow-y-auto p-4">
+                {msgs.length === 0 && <p className="text-center text-sm text-muted-foreground">Vocês deram match! Diga um oi 👋</p>}
+                {msgs.map((m) => {
+                  const minha = m.sender_id === userId;
+                  return (
+                    <div key={m.id} className={`flex ${minha ? "justify-end" : "justify-start"}`}>
+                      <div className={`max-w-[75%] rounded-2xl px-4 py-2 text-sm ${minha ? "bg-primary text-primary-foreground" : "bg-bubble"}`}>
+                        {m.content}
+                        <div className="mt-0.5 text-[10px] opacity-60">{new Date(m.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+                <div ref={fimRef} />
+              </div>
+              <form onSubmit={enviar} className="flex gap-2 border-t p-3">
+                <Input placeholder="Escreva uma mensagem..." value={texto} onChange={(e) => setTexto(e.target.value)} maxLength={2000} />
+                <Button type="submit" size="icon" aria-label="Enviar"><Send className="size-4" /></Button>
+              </form>
+            </>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+
+
+perfil.tsx
+src/routes/_authenticated/perfil.tsx
+
+
+import { createFileRoute } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { Plus, Star, Trash2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { selectClass } from "@/components/AuthCard";
+import { useFotoUrls } from "@/lib/fotos";
+import { ESTADOS, GENEROS, MAX_FOTOS } from "@/lib/regras";
+
+export const Route = createFileRoute("/_authenticated/perfil")({
+  head: () => ({
+    meta: [
+      { title: "Meu perfil | SEXYZ" },
+      { name: "description", content: "Edite suas informações e fotos." },
+      { property: "og:title", content: "Meu perfil | SEXYZ" },
+      { property: "og:description", content: "Edite suas informações e fotos." },
+    ],
+  }),
+  component: Perfil,
+});
+
+function Perfil() {
+  const { userId } = Route.useRouteContext();
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [enviando, setEnviando] = useState(false);
+  const { data: perfil } = useQuery({
+    queryKey: ["perfil", userId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).single();
+      if (error) throw error;
+      return data;
+    },
+  });
+  const [f, setF] = useState({ nome: "", bio: "", cidade: "", estado: "", interesses: "", genero: "" });
+  useEffect(() => {
+    if (perfil) setF({ nome: perfil.nome, bio: perfil.bio ?? "", cidade: perfil.cidade ?? "", estado: perfil.estado ?? "", interesses: perfil.interesses ?? "", genero: perfil.genero ?? "" });
+  }, [perfil]);
+  const fotos = perfil?.fotos ?? [];
+  const { data: urls = {} } = useFotoUrls(fotos);
+
+  async function salvarFotos(novas: string[]) {
+    const { error } = await supabase.from("profiles").update({ fotos: novas }).eq("id", userId);
+    if (error) throw error;
+    qc.invalidateQueries({ queryKey: ["perfil", userId] });
+  }
+
+  async function adicionar(files: FileList | null) {
+    if (!files?.length) return;
+    const livres = MAX_FOTOS - fotos.length;
+    const lista = Array.from(files).slice(0, livres);
+    if (!lista.length) return toast.error(`Máximo de ${MAX_FOTOS} fotos.`);
+    setEnviando(true);
+    try {
+      const novos: string[] = [];
+      for (const file of lista) {
+        if (!file.type.startsWith("image/")) continue;
+        if (file.size > 5 * 1024 * 1024) { toast.error(`${file.name} passa de 5 MB.`); continue; }
+        const ext = file.name.split(".").pop() || "jpg";
+        const path = `${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+        const { error } = await supabase.storage.from("fotos").upload(path, file, { contentType: file.type });
+        if (error) { toast.error("Falha ao enviar " + file.name); continue; }
+        novos.push(path);
+      }
+      if (novos.length) { await salvarFotos([...fotos, ...novos]); toast.success("Fotos adicionadas!"); }
+    } finally {
+      setEnviando(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function remover(path: string) {
+    await supabase.storage.from("fotos").remove([path]);
+    await salvarFotos(fotos.filter((p) => p !== path));
+  }
+  async function principal(path: string) {
+    await salvarFotos([path, ...fotos.filter((p) => p !== path)]);
+  }
+
+  async function salvar() {
+    const { error } = await supabase.from("profiles").update(f).eq("id", userId);
+    if (error) return toast.error("Erro ao salvar.");
+    toast.success("Perfil atualizado!");
+    qc.invalidateQueries({ queryKey: ["perfil", userId] });
+  }
+
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
+
+  return (
+    <div>
+      <div className="mb-6 flex items-end justify-between">
+        <div><p className="text-sm font-semibold uppercase tracking-widest text-accent">Seu espaço</p><h1 className="text-4xl font-extrabold">Meu perfil</h1></div>
+        <Button onClick={salvar}>Salvar alterações</Button>
+      </div>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <section className="space-y-4 rounded-3xl border bg-card p-6">
+          <h3 className="text-xl font-bold">Informações pessoais</h3>
+          <div className="space-y-1.5"><Label>Apelido</Label><Input value={f.nome} onChange={set("nome")} /></div>
+          <div className="space-y-1.5"><Label>Biografia</Label><Textarea rows={4} value={f.bio} onChange={set("bio")} placeholder="Conte um pouco sobre você" /></div>
+          <div className="space-y-1.5"><Label>Gênero</Label>
+            <select className={selectClass} value={f.genero} onChange={set("genero")}><option value="">Selecione</option>{GENEROS.map((g) => <option key={g}>{g}</option>)}</select></div>
+          <div className="grid grid-cols-[1fr_6rem] gap-3">
+            <div className="space-y-1.5"><Label>Cidade</Label><Input value={f.cidade} onChange={set("cidade")} /></div>
+            <div className="space-y-1.5"><Label>UF</Label>
+              <select className={selectClass} value={f.estado} onChange={set("estado")}><option value="">--</option>{ESTADOS.map((u) => <option key={u}>{u}</option>)}</select></div>
+          </div>
+          <div className="space-y-1.5"><Label>Interesses (separados por vírgula)</Label><Input value={f.interesses} onChange={set("interesses")} placeholder="Música, viagens, cinema" /></div>
+        </section>
+
+        <section className="rounded-3xl border bg-card p-6">
+          <h3 className="text-xl font-bold">Galeria de fotos</h3>
+          <p className="mb-4 text-sm text-muted-foreground">Até {MAX_FOTOS} fotos. A primeira é a principal. ({fotos.length}/{MAX_FOTOS})</p>
+          <div className="grid grid-cols-3 gap-3">
+            {Array.from({ length: MAX_FOTOS }).map((_, i) => {
+              const path = fotos[i];
+              return path ? (
+                <div key={path} className="group relative aspect-square overflow-hidden rounded-2xl bg-secondary">
+                  {urls[path] && <img src={urls[path]} alt={`Foto ${i + 1}`} className="h-full w-full object-cover" />}
+                  {i === 0 && <span className="absolute left-2 top-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground">Principal</span>}
+                  <div className="absolute inset-x-0 bottom-0 flex justify-center gap-1 bg-background/70 p-1 opacity-0 transition-opacity group-hover:opacity-100">
+                    {i !== 0 && <Button size="icon" variant="ghost" className="size-7" aria-label="Tornar principal" onClick={() => principal(path)}><Star className="size-4" /></Button>}
+                    <Button size="icon" variant="ghost" className="size-7" aria-label="Remover foto" onClick={() => remover(path)}><Trash2 className="size-4" /></Button>
+                  </div>
+                </div>
+              ) : (
+                <button key={i} disabled={enviando} onClick={() => fileRef.current?.click()}
+                  className="grid aspect-square place-items-center rounded-2xl border-2 border-dashed text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+                  <span className="flex flex-col items-center text-xs"><Plus className="size-5" />Foto {i + 1}</span>
+                </button>
+              );
+            })}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => adicionar(e.target.files)} />
+          <Button className="mt-4 w-full" variant="secondary" disabled={enviando || fotos.length >= MAX_FOTOS} onClick={() => fileRef.current?.click()}>
+            {enviando ? "Enviando..." : "Adicionar fotografias"}
+          </Button>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+
+configuracoes.tsx
+src/routes/_authenticated/configuracoes.tsx
+
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export const Route = createFileRoute("/_authenticated/configuracoes")({
+  head: () => ({
+    meta: [
+      { title: "Configurações | SEXYZ" },
+      { name: "description", content: "Senha e conta." },
+      { property: "og:title", content: "Configurações | SEXYZ" },
+      { property: "og:description", content: "Senha e conta." },
+    ],
+  }),
+  component: Config,
+});
+
+function Config() {
+  const nav = useNavigate();
+  const [atual, setAtual] = useState("");
+  const [nova, setNova] = useState("");
+
+  async function trocar(e: React.FormEvent) {
+    e.preventDefault();
+    if (nova.length < 6) return toast.error("A nova senha precisa ter pelo menos 6 caracteres.");
+    const { error } = await supabase.auth.updateUser({ password: nova, current_password: atual } as never);
+    if (error) return toast.error("Não foi possível alterar. Confira a senha atual.");
+    toast.success("Senha alterada!");
+    setAtual(""); setNova("");
+  }
+
+  async function sair() {
+    await supabase.auth.signOut();
+    nav({ to: "/login" });
+  }
+
+  return (
+    <div className="max-w-lg space-y-6">
+      <h1 className="text-4xl font-extrabold">Configurações</h1>
+      <form onSubmit={trocar} className="space-y-4 rounded-3xl border bg-card p-6">
+        <h3 className="text-xl font-bold">Alterar senha</h3>
+        <div className="space-y-1.5"><Label>Senha atual</Label><Input type="password" value={atual} onChange={(e) => setAtual(e.target.value)} /></div>
+        <div className="space-y-1.5"><Label>Nova senha</Label><Input type="password" value={nova} onChange={(e) => setNova(e.target.value)} /></div>
+        <Button type="submit">Salvar nova senha</Button>
+      </form>
+      <div className="rounded-3xl border bg-card p-6">
+        <h3 className="mb-3 text-xl font-bold">Sessão</h3>
+        <Button variant="destructive" onClick={sair}>Sair da conta</Button>
+      </div>
+    </div>
+  );
+}
