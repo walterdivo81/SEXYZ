@@ -1,0 +1,9 @@
+{
+  "name": "SEXYZ",
+  "short_name": "SEXYZ",
+  "lang": "pt-BR",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#17141c",
+  "theme_color": "#17141c"
+}
